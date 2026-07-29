@@ -6,7 +6,8 @@ set -euo pipefail
 # also be done manually — see README. bootstrap.sh stays the
 # non-interactive core; this is just the guided path to it.
 
-cd "$(dirname "$0")" || exit 1
+# readlink -f: work even when setup.sh is invoked via a symlink
+cd "$(dirname "$(readlink -f "$0")")" || exit 1
 
 if [ "$(id -u)" -eq 0 ]; then
   echo "setup: run as the normal user — it sudoes only where needed" >&2
@@ -14,6 +15,15 @@ if [ "$(id -u)" -eq 0 ]; then
 fi
 
 say() { printf '\n== %s\n' "$*"; }
+
+# hidden-input prompt; strips ALL whitespace so space-mashed input can't
+# masquerade as a key
+ask_key() {
+  local v
+  read -rsp "   $2: " v
+  echo
+  printf -v "$1" '%s' "${v//[[:space:]]/}"
+}
 
 ENV_FILE=/etc/lavasec/lavasec.env
 TOKEN_FILE="${HOME}/.config/lavasec/github-token"
@@ -25,12 +35,12 @@ else
   master="sk-$(openssl rand -hex 24)"
   echo "   Generated the local gateway master key."
   echo "   Paste provider API keys (input hidden; Enter to skip any):"
-  read -rsp "   DEEPSEEK_API_KEY: " k_ds; echo
-  read -rsp "   OPENROUTER_API_KEY: " k_or; echo
-  read -rsp "   ANTHROPIC_API_KEY: " k_an; echo
-  read -rsp "   OPENAI_API_KEY: " k_oa; echo
-  read -rsp "   NEURALWATT_API_KEY: " k_nw; echo
-  read -rsp "   OPENCODE_API_KEY: " k_oc; echo
+  ask_key k_ds DEEPSEEK_API_KEY
+  ask_key k_or OPENROUTER_API_KEY
+  ask_key k_an ANTHROPIC_API_KEY
+  ask_key k_oa OPENAI_API_KEY
+  ask_key k_nw NEURALWATT_API_KEY
+  ask_key k_oc OPENCODE_API_KEY
   if [ -z "${k_ds}${k_or}${k_an}${k_oa}${k_nw}${k_oc}" ]; then
     echo "   at least one provider key is required — get one and re-run" >&2
     exit 1
@@ -51,7 +61,7 @@ else
   read -rsp "   Paste token (input hidden; Enter to skip repo sync): " tok; echo
   if [ -n "${tok}" ]; then
     mkdir -p "$(dirname "${TOKEN_FILE}")"
-    (umask 077 && printf %s "${tok}" > "${TOKEN_FILE}")
+    (umask 077 && printf '%s\n' "${tok}" > "${TOKEN_FILE}")
     echo "   written (600)."
   else
     echo "   skipped — the repo-sync step of bootstrap will fail with"
@@ -67,7 +77,13 @@ else
   read -rp "   Join a tailnet now? [y/N] " yn
   case "${yn}" in
     [Yy]*)
+      # exit 1 here is EXPECTED pre-login (NeedsLogin); a real install
+      # failure is caught by the binary check below
       bash scripts/50-tailscale.sh || true
+      if ! command -v tailscale >/dev/null; then
+        echo "   tailscale install failed — see output above" >&2
+        exit 1
+      fi
       echo "   Approve the URL below in your browser, then setup continues."
       sudo tailscale up
       ;;
