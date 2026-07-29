@@ -58,6 +58,16 @@ export default function (pi: ExtensionAPI) {
         maxTokens: 16384,
       },
       {
+        id: "opencode/gpt-5.5",
+        name: "GPT-5.5 via OpenCode Zen (lava-gateway)",
+        reasoning: true,
+        input: ["text"],
+        // OpenCode Go is subscription-based — no per-token display cost
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 200000,
+        maxTokens: 32768,
+      },
+      {
         id: "neuralwatt/qwen3.6-35b",
         name: "Qwen 3.6 35B via Neuralwatt (lava-gateway)",
         reasoning: true,
