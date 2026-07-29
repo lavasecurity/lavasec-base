@@ -85,7 +85,8 @@ ufw explicit deny-in, unattended-upgrades, litellm log rotation.
 
 1. **Git auth on the VM** — RESOLVED (S3, owner calls 2026-07-29): HTTPS with
    one fine-grained read-only PAT, repository access **All repositories**
-   (Contents: Read-only) — this box mirrors the whole org by design, so
+   (Contents + Pull requests: Read-only — Contents alone clones but 403s
+   on private-repo PR reads, verified) — this box mirrors the org, so
    `config/repos.txt` is the explicit sync inventory and the token needs no
    per-repo maintenance. Deploy keys were implemented first and worked, but
    are 1:1 per repo. OAuth user tokens rejected: account-wide read/write,
