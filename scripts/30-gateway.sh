@@ -33,6 +33,13 @@ if [ ! -x /opt/lavasec/venv/bin/pip ]; then
 fi
 sudo /opt/lavasec/venv/bin/pip install -q --upgrade pip "litellm[proxy]${LITELLM_VERSION:+==${LITELLM_VERSION}}"
 
+# langfuse SDK only when tracing is configured — keeps the venv lean
+# otherwise (the callback in litellm.yaml renders under the same key)
+if sudo sh -c ". ${ENV_FILE} && [ -n \"\${LANGFUSE_PUBLIC_KEY:-}\" ]"; then
+  sudo /opt/lavasec/venv/bin/pip install -q langfuse
+  echo "30-gateway: langfuse tracing enabled"
+fi
+
 # --- config + unit ---
 # Render the catalog template: each "requires <KEY>" section is included
 # only when that key is set non-empty in the env file, so this box's live

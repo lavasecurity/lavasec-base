@@ -104,3 +104,11 @@ general_settings:
 
 litellm_settings:
   drop_params: true
+  # Langfuse tracing — instrument ONCE here and every client (pi, opencode,
+  # the web UIs, anything added later) is traced, because they all reach
+  # providers through this gateway. Activates only when the keys exist in
+  # /etc/lavasec/lavasec.env; costs/latency/tokens per model included.
+  # >>> requires LANGFUSE_PUBLIC_KEY
+  success_callback: ["langfuse"]
+  failure_callback: ["langfuse"]
+  # <<< requires LANGFUSE_PUBLIC_KEY

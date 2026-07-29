@@ -98,6 +98,14 @@ restarts the service, and re-verifies it — required when *adding* a
 provider's first key, and harmless for a plain rotation. Clients never
 notice — they only hold the local gateway key.
 
+## Tracing (optional)
+
+Add `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and `LANGFUSE_HOST` to
+`/etc/lavasec/lavasec.env` and re-run `bash scripts/30-gateway.sh`. Because
+every client reaches providers through the gateway, instrumenting it once
+traces them all — pi, opencode, and the web UIs — with no client-side SDK.
+Leave the keys empty and nothing is installed or sent.
+
 ## Adding a model
 
 Keyed native providers use wildcards (`openrouter/*`), so their catalogs
