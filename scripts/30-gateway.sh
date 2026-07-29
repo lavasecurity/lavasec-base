@@ -46,7 +46,13 @@ if sudo sh -c ". ${ENV_FILE} && ${LANGFUSE_TEST}"; then
   # nowhere, yet litellm logs "callbacks initialized" and returns 200 while
   # every trace export 401s in the background. Verify here so the failure
   # is loud at bootstrap instead of silent at runtime.
-  lf_code="$(sudo sh -c ". ${ENV_FILE} && curl -s -o /dev/null -w '%{http_code}' --max-time 20 -u \"\${LANGFUSE_PUBLIC_KEY}:\${LANGFUSE_SECRET_KEY}\" \"\${LANGFUSE_HOST%/}/api/public/projects\"")"
+  # same non-argv rule as the catalog fetches: `-u pk:sk` would expose the
+  # Langfuse secret in world-readable /proc/<pid>/cmdline
+  lf_code="$(sudo sh -c "umask 077; . ${ENV_FILE}; cfg=\$(mktemp); \
+    cat > \"\$cfg\" <<EOF
+user = \"\${LANGFUSE_PUBLIC_KEY}:\${LANGFUSE_SECRET_KEY}\"
+EOF
+    curl -s -o /dev/null -w '%{http_code}' --max-time 20 -K \"\$cfg\" \"\${LANGFUSE_HOST%/}/api/public/projects\"; rc=\$?; rm -f \"\$cfg\"; exit \$rc")"
   if [ "${lf_code}" != "200" ]; then
     {
       echo "30-gateway: langfuse credentials rejected by $(sudo sh -c ". ${ENV_FILE} && printf %s \"\${LANGFUSE_HOST}\"") (HTTP ${lf_code})"
