@@ -47,7 +47,8 @@ fi
 echo "60-t3code: $(t3 --version 2>/dev/null | head -1)"
 
 t3_bin="$(command -v t3)"
-sudo tee /etc/systemd/system/t3code.service >/dev/null <<EOF
+unit_tmp="$(mktemp)"
+cat > "${unit_tmp}" <<EOF
 [Unit]
 Description=T3 Code server (lavasec-base)
 After=network-online.target litellm.service tailscaled.service
@@ -66,9 +67,22 @@ PrivateTmp=true
 [Install]
 WantedBy=multi-user.target
 EOF
-sudo systemctl daemon-reload
-sudo systemctl enable t3code >/dev/null
-sudo systemctl restart t3code
+# restart ONLY when the unit changed or the service isn't healthy: each
+# start mints a new one-time pairing token, so needless restarts would
+# invalidate a link the owner is about to use
+if ! sudo cmp -s "${unit_tmp}" /etc/systemd/system/t3code.service; then
+  sudo install -m 644 "${unit_tmp}" /etc/systemd/system/t3code.service
+  sudo systemctl daemon-reload
+  sudo systemctl enable t3code >/dev/null
+  sudo systemctl restart t3code
+  echo "60-t3code: unit updated — service restarted (new pairing token)"
+elif ! systemctl is-active --quiet t3code; then
+  sudo systemctl enable t3code >/dev/null
+  sudo systemctl start t3code
+else
+  echo "60-t3code: service already healthy — left running (pairing preserved)"
+fi
+rm -f "${unit_tmp}"
 
 # wildcard bind is a security failure, not a warning: stop the unit before
 # exiting so nothing keeps listening beyond the tailnet
@@ -111,7 +125,9 @@ fi
 # script only reports the option; the owner opts in deliberately. The
 # node-specific enable URL is only obtainable from a mutating attempt, so
 # we point at the command instead.
-if sudo tailscale serve status 2>&1 | grep -qi "no serve config"; then
+# print unless Serve is already configured for our port — covers
+# admin-disabled, unconfigured, and status-error cases alike
+if ! sudo tailscale serve status 2>&1 | grep -q "3773"; then
   echo "60-t3code: optional HTTPS upgrade (not enabled by this script):"
   # target the BOUND address — a bare port would proxy to loopback, where
   # nothing listens
