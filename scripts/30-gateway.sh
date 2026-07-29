@@ -113,11 +113,15 @@ while IFS='|' read -r prefix base keyvar; do
       ((.top_provider.max_completion_tokens // "") | tostring),
       (.pricing.input_cache_read // "" | tostring),
       (.pricing.input_cache_write // "" | tostring),
-      ((.architecture.input_modalities // [] | index("image")) != null | tostring)
-    ] | @tsv' 2>/dev/null || true)"
+      ((.architecture.input_modalities // [] | index("image")) != null | tostring),
+      ((.supported_parameters // [] | index("reasoning")) != null | tostring)
+    ] | join("\u001f")' 2>/dev/null || true)"
   [ -n "${ids}" ] || continue
   count=0
-  while IFS=$'\t' read -r id in_cost out_cost ctx max_out cache_r cache_w vision; do
+  # \x1f (unit separator), NOT tab: tab is IFS *whitespace*, so bash
+  # collapses runs of it and empty fields shift every later value into the
+  # wrong variable (observed: cache price landing in max_output_tokens)
+  while IFS=$'\x1f' read -r id in_cost out_cost ctx max_out cache_r cache_w vision reasoning; do
     [ -n "${id}" ] || continue
     case "${id}" in *'"'*|*'*'*) continue ;; esac   # skip ids we can't quote safely
     {
@@ -139,6 +143,7 @@ while IFS='|' read -r prefix base keyvar; do
       case "${cache_r}" in ''|null|0) ;; *) echo "      cache_read_input_token_cost: ${cache_r}" ;; esac
       case "${cache_w}" in ''|null|0) ;; *) echo "      cache_creation_input_token_cost: ${cache_w}" ;; esac
       case "${vision}" in true) echo "      supports_vision: true" ;; esac
+      case "${reasoning}" in true) echo "      supports_reasoning: true" ;; esac
     } >> "${catalog_fragment}"
     count=$((count + 1))
   done <<< "${ids}"
