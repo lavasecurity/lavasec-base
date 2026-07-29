@@ -18,9 +18,10 @@ TOKEN_FILE="${HOME}/.config/lavasec/github-token"
 mkdir -p "${SRC_DIR}"
 mkdir -p "$(dirname "${TOKEN_FILE}")"
 
-# seed a self-documenting overlay template on first run (never overwrites)
+# seed a self-documenting overlay template on first run (never overwrites);
+# umask 077: the populated file lists private repo names — owner-only
 if [ ! -e "${REPOS_LOCAL}" ]; then
-  cat > "${REPOS_LOCAL}" <<'EOF'
+  (umask 077 && cat > "${REPOS_LOCAL}") <<'EOF'
 # Box-local repo overlay — read by scripts/20-git.sh alongside
 # config/repos.txt, same format: one org/name per line, # ignores a line.
 # This file is gitignored: private/box-specific entries belong here and
