@@ -254,7 +254,12 @@ if ss -tln | grep -qE '(0\.0\.0\.0|\[::\]):4000'; then
   exit 1
 fi
 
-models="$(sudo sh -c ". ${ENV_FILE} && curl -fsS -H \"Authorization: Bearer \${LITELLM_MASTER_KEY}\" http://127.0.0.1:4000/v1/models")"
+# same non-argv rule as every other credential path in this repo
+models="$(sudo sh -c "umask 077; . ${ENV_FILE}; cfg=\$(mktemp); \
+  cat > \"\$cfg\" <<EOF
+header = \"Authorization: Bearer \${LITELLM_MASTER_KEY}\"
+EOF
+  curl -fsS -K \"\$cfg\" http://127.0.0.1:4000/v1/models; rc=\$?; rm -f \"\$cfg\"; exit \$rc")"
 model_count="$(printf '%s' "${models}" | jq '.data | length')"
 if [ "${model_count}" -eq 0 ]; then
   echo "gateway is up but lists zero models — check /opt/lavasec/litellm.yaml" >&2
