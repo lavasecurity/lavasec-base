@@ -110,11 +110,14 @@ while IFS='|' read -r prefix base keyvar; do
       (.pricing.prompt // "" | tostring),
       (.pricing.completion // "" | tostring),
       ((.context_length // .top_provider.context_length // "") | tostring),
-      ((.top_provider.max_completion_tokens // "") | tostring)
+      ((.top_provider.max_completion_tokens // "") | tostring),
+      (.pricing.input_cache_read // "" | tostring),
+      (.pricing.input_cache_write // "" | tostring),
+      ((.architecture.input_modalities // [] | index("image")) != null | tostring)
     ] | @tsv' 2>/dev/null || true)"
   [ -n "${ids}" ] || continue
   count=0
-  while IFS=$'\t' read -r id in_cost out_cost ctx max_out; do
+  while IFS=$'\t' read -r id in_cost out_cost ctx max_out cache_r cache_w vision; do
     [ -n "${id}" ] || continue
     case "${id}" in *'"'*|*'*'*) continue ;; esac   # skip ids we can't quote safely
     {
@@ -133,6 +136,9 @@ while IFS='|' read -r prefix base keyvar; do
       case "${out_cost}" in ''|null|0) ;; *) echo "      output_cost_per_token: ${out_cost}" ;; esac
       case "${ctx}" in ''|null|0) ;; *) echo "      max_input_tokens: ${ctx}" ;; esac
       case "${max_out}" in ''|null|0) ;; *) echo "      max_output_tokens: ${max_out}" ;; esac
+      case "${cache_r}" in ''|null|0) ;; *) echo "      cache_read_input_token_cost: ${cache_r}" ;; esac
+      case "${cache_w}" in ''|null|0) ;; *) echo "      cache_creation_input_token_cost: ${cache_w}" ;; esac
+      case "${vision}" in true) echo "      supports_vision: true" ;; esac
     } >> "${catalog_fragment}"
     count=$((count + 1))
   done <<< "${ids}"
