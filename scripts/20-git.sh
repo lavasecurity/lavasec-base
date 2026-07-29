@@ -10,8 +10,9 @@ set -euo pipefail
 # fresh on every git operation, so rotation is just overwriting that file.
 
 REPOS_FILE="$(cd "$(dirname "$0")/.." && pwd)/config/repos.txt"
-# untracked box-specific overlay — private repo names never enter the repo
-REPOS_LOCAL="${REPOS_FILE%.txt}.local.txt"
+# box-specific overlay lives OUTSIDE every repo (owner call 2026-07-29):
+# working trees stay pristine, and box-local config survives re-clones
+REPOS_LOCAL="${HOME}/.config/lavasec/repos.local.txt"
 SRC_DIR="${SRC_DIR:-${HOME}/src}"
 TOKEN_FILE="${HOME}/.config/lavasec/github-token"
 

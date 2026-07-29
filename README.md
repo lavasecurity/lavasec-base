@@ -63,8 +63,9 @@ new shell defaults to the gateway and the verified model — your own
 ## Adding a repo to sync
 
 1. Add `org/name` to `config/repos.txt` — or, for private/box-specific
-   entries, to `config/repos.local.txt` (gitignored, same format; the sync
-   PAT covers all org repos either way).
+   entries, to `~/.config/lavasec/repos.local.txt` (same format; lives
+   outside the repo so working trees stay pristine and it survives
+   re-clones; the sync PAT covers all org repos either way).
 2. Run `./bootstrap.sh` — it clones into `~/src/`. A missing or invalid
    token fails loudly with setup instructions.
 
