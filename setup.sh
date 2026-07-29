@@ -59,6 +59,7 @@ else
   echo "   settings → Fine-grained tokens. Repository access: the repos in"
   echo "   config/repos.txt (or All). Permissions: Contents = Read-only."
   read -rsp "   Paste token (input hidden; Enter to skip repo sync): " tok; echo
+  tok="${tok//[[:space:]]/}"  # clipboard paste often carries a trailing newline/space
   if [ -n "${tok}" ]; then
     mkdir -p "$(dirname "${TOKEN_FILE}")"
     (umask 077 && printf '%s\n' "${tok}" > "${TOKEN_FILE}")
