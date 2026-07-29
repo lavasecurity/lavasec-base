@@ -107,8 +107,14 @@ for line in "${lines[@]}"; do
         *) ;;   # transport failure: fall through to the pull, which reports it
       esac
     fi
-    if [ -n "${branch_gone}" ]; then
-      echo "20-git: ${repo} on '${branch}' (branch deleted upstream) — left alone"
+    # A branch pushed without -u has a remote ref but NO tracking config;
+    # `pull --ff-only` then fails with "no tracking information" and would
+    # fail the whole bootstrap — exactly what this skip exists to prevent.
+    if [ -n "${branch}" ] && [ -z "${branch_gone}" ] \
+        && ! git -C "${dest}" rev-parse --abbrev-ref "@{upstream}" >/dev/null 2>&1; then
+      echo "20-git: ${repo} on '${branch}' (no tracking upstream) — left alone"
+    elif [ -n "${branch_gone}" ]; then
+      echo "20-git: ${repo} on '${branch}' (no matching upstream branch) — left alone"
     elif out=$(git -C "${dest}" pull --ff-only 2>&1 < /dev/null); then
       echo "20-git: pulled ${repo}"
       synced=$((synced + 1))
