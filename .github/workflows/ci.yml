@@ -37,16 +37,24 @@ jobs:
           # headers or credentials on the command line — every request writes
           # a 0600 config file and uses `curl -K`. Matching the *value* is
           # unwinnable (variables, attached args, bundled flags), so the
-          # OPTION is banned. Line continuations are joined first, since an
-          # option can sit on a later physical line than its `curl`.
+          # OPTION is banned. Continuations are joined first: an option can
+          # sit on a later physical line than its `curl`.
+          hits=""
           for f in scripts/*.sh setup.sh bootstrap.sh; do
-            sed -e ':a' -e '/\\$/{N;s/\\\n//;ba' -e '}' "$f" \
+            found="$(sed -e ':a' -e '/\\$/{N;s/\\\n//;ba' -e '}' "$f" \
               | grep -v '^[[:space:]]*#' \
               | grep -n 'curl' \
-              | grep -E -- '(^|[^-A-Za-z])-[A-Za-z]*[Hu]|--(header|user)([^-A-Za-z]|=|$)' \
-              | sed "s|^|$f:|" && { echo "^^ curl must not take -H/--header/-u/--user: write a 0600 config file and use -K" >&2; exit 1; }
+              | grep -E -- '(^|[^-A-Za-z])-[A-Za-z]*[Hu]|--(header|user)([^-A-Za-z]|=|$)' || true)"
+            if [ -n "$found" ]; then
+              hits="${hits}$(printf '%s\n' "$found" | sed "s|^|$f:|")\n"
+            fi
           done
-          echo "no credential-bearing curl options"
+          if [ -n "$hits" ]; then
+            printf '%b' "$hits" >&2
+            echo "^^ curl must not take -H/--header/-u/--user: write a 0600 config file and use -K" >&2
+            exit 1
+          fi
+          echo "OK: no credential-bearing curl options"
 
       - name: no secret-shaped strings committed
         run: |
