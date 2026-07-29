@@ -42,11 +42,25 @@ sudo /opt/lavasec/venv/bin/pip install -q --upgrade pip "litellm[proxy]${LITELLM
 # the sudo subshell after the env file is sourced
 LANGFUSE_TEST='[ -n "${LANGFUSE_PUBLIC_KEY:-}" ] && [ -n "${LANGFUSE_SECRET_KEY:-}" ] && [ -n "${LANGFUSE_HOST:-}" ]'
 if sudo sh -c ". ${ENV_FILE} && ${LANGFUSE_TEST}"; then
+  # Credentials are REGION-SCOPED: the wrong Langfuse host authenticates
+  # nowhere, yet litellm logs "callbacks initialized" and returns 200 while
+  # every trace export 401s in the background. Verify here so the failure
+  # is loud at bootstrap instead of silent at runtime.
+  lf_code="$(sudo sh -c ". ${ENV_FILE} && curl -s -o /dev/null -w '%{http_code}' --max-time 20 -u \"\${LANGFUSE_PUBLIC_KEY}:\${LANGFUSE_SECRET_KEY}\" \"\${LANGFUSE_HOST%/}/api/public/projects\"")"
+  if [ "${lf_code}" != "200" ]; then
+    {
+      echo "30-gateway: langfuse credentials rejected by $(sudo sh -c ". ${ENV_FILE} && printf %s \"\${LANGFUSE_HOST}\"") (HTTP ${lf_code})"
+      echo "  Langfuse keys are region-scoped — set LANGFUSE_HOST to the region"
+      echo "  your project lives in (US: https://us.cloud.langfuse.com,"
+      echo "  EU: https://cloud.langfuse.com) and re-run."
+    } >&2
+    exit 1
+  fi
   # pin <3: litellm's integration reads langfuse.version.__version__,
   # which the v3+ SDK moved (AttributeError on EVERY traced request).
   # Override with LANGFUSE_PIN when litellm gains v3 support.
   sudo /opt/lavasec/venv/bin/pip install -q "${LANGFUSE_PIN:-langfuse<3}"
-  echo "30-gateway: langfuse tracing enabled ($(/opt/lavasec/venv/bin/pip show langfuse 2>/dev/null | awk '/^Version:/{print $2}'))"
+  echo "30-gateway: langfuse tracing enabled ($(/opt/lavasec/venv/bin/pip show langfuse 2>/dev/null | awk '/^Version:/{print $2}'), credentials verified)"
 elif sudo sh -c ". ${ENV_FILE} && [ -n \"\${LANGFUSE_PUBLIC_KEY:-}\${LANGFUSE_SECRET_KEY:-}\${LANGFUSE_HOST:-}\" ]"; then
   echo "30-gateway: langfuse partially configured — tracing OFF (needs LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_HOST)" >&2
 fi
