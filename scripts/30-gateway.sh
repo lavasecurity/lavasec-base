@@ -82,15 +82,21 @@ printf '%s\n' "${rendered_content}" > "${rendered}"
 # kimi-k3 missing entirely). Providers publish the truth at /models, so
 # enumerate that and emit explicit entries. Wildcards stay in the template
 # for ad-hoc slugs; these entries make the LISTING complete and accurate.
-# prefix|base_url|key_var   (empty key_var = keyless endpoint)
-PROVIDER_CATALOGS="opencode|https://opencode.ai/zen/v1|OPENCODE_API_KEY
-neuralwatt|https://api.neuralwatt.com/v1|NEURALWATT_API_KEY
-openrouter|https://openrouter.ai/api/v1|OPENROUTER_API_KEY
-deepseek|https://api.deepseek.com/v1|DEEPSEEK_API_KEY
-ollama|${OLLAMA_BASE:-https://ollama.com/v1}|OLLAMA_API_KEY"
+# prefix|base_url|key_var|routing
+#   native -> litellm has a first-class provider: route as "<prefix>/<id>"
+#     with NO api_base so provider-specific behaviour survives (OpenRouter's
+#     HTTP-Referer/X-Title attribution — routing these through the generic
+#     openai client made OpenRouter report the caller as "unknown").
+#   custom -> OpenAI-compatible endpoint litellm has no provider for:
+#     route as "openai/<id>" + api_base.
+PROVIDER_CATALOGS="opencode|https://opencode.ai/zen/v1|OPENCODE_API_KEY|custom
+neuralwatt|https://api.neuralwatt.com/v1|NEURALWATT_API_KEY|custom
+openrouter|https://openrouter.ai/api/v1|OPENROUTER_API_KEY|native
+deepseek|https://api.deepseek.com/v1|DEEPSEEK_API_KEY|native
+ollama|${OLLAMA_BASE:-https://ollama.com/v1}|OLLAMA_API_KEY|custom"
 
 catalog_fragment="$(mktemp)"
-while IFS='|' read -r prefix base keyvar; do
+while IFS='|' read -r prefix base keyvar routing; do
   [ -n "${prefix}" ] || continue
   fetch_failed=""
   if [ -n "${keyvar}" ]; then
@@ -147,8 +153,12 @@ while IFS='|' read -r prefix base keyvar; do
     {
       echo "  - model_name: \"${prefix}/${id}\""
       echo "    litellm_params:"
-      echo "      model: \"openai/${id}\""
-      echo "      api_base: \"${base}\""
+      if [ "${routing}" = "native" ]; then
+        echo "      model: \"${prefix}/${id}\""
+      else
+        echo "      model: \"openai/${id}\""
+        echo "      api_base: \"${base}\""
+      fi
       if [ -n "${keyvar}" ]; then
         echo "      api_key: os.environ/${keyvar}"
       else
