@@ -59,6 +59,13 @@ if [ -z "${PI_CHECK_MODEL:-}" ]; then
     elif [ -n \"\${ANTHROPIC_API_KEY:-}\" ];  then echo anthropic/claude-haiku-4-5; \
     elif [ -n \"\${OPENAI_API_KEY:-}\" ];     then echo openai/gpt-4o-mini; \
     elif [ -n \"\${OPENCODE_API_KEY:-}\" ];   then echo opencode/gpt-5.5; fi")"
+  # Ollama Cloud publishes no fixed ids we can assume — take the first one
+  # the gateway actually routes
+  if [ -z "${PI_CHECK_MODEL}" ] && sudo sh -c ". ${ENV_FILE} && [ -n \"\${OLLAMA_API_KEY:-}\" ]"; then
+    PI_CHECK_MODEL="$(LITELLM_MASTER_KEY="$(cat "${KEY_FILE}")" curl -fsS --max-time 10 \
+      -H "Authorization: Bearer $(cat "${KEY_FILE}")" http://127.0.0.1:4000/model/info 2>/dev/null \
+      | jq -r '[.data[].model_name | select(startswith("ollama/"))][0] // empty' 2>/dev/null || true)"
+  fi
 fi
 if [ -z "${PI_CHECK_MODEL}" ]; then
   echo "40-pi: no provider API key configured in ${ENV_FILE} — cannot verify a round-trip. Add at least one provider key and re-run." >&2

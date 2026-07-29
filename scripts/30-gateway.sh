@@ -92,13 +92,33 @@ ollama|${OLLAMA_BASE:-https://ollama.com/v1}|OLLAMA_API_KEY"
 catalog_fragment="$(mktemp)"
 while IFS='|' read -r prefix base keyvar; do
   [ -n "${prefix}" ] || continue
+  fetch_failed=""
   if [ -n "${keyvar}" ]; then
-    key="$(sudo sh -c ". ${ENV_FILE} && printf %s \"\${${keyvar}:-}\"")"
-    [ -n "${key}" ] || continue
-    raw="$(curl -fsS --max-time 25 -H "Authorization: Bearer ${key}" "${base}/models" 2>/dev/null || true)"
+    # presence check AND request both run inside the privileged shell:
+    # interpolating the key into curl's -H here would expose the secret in
+    # this user's process argv, visible to any local process listing
+    if ! sudo sh -c ". ${ENV_FILE} && [ -n \"\${${keyvar}:-}\" ]"; then
+      continue   # provider not configured on this box
+    fi
+    # curl -K <file>: the header (and thus the key) never appears in ANY
+    # process argv — /proc/<pid>/cmdline is world-readable even for root
+    # processes, so `-H "Authorization: Bearer ..."` would leak it to any
+    # local user running ps
+    raw="$(sudo sh -c ". ${ENV_FILE} && cfg=\$(mktemp) && umask 077 && \
+      printf 'header = \"Authorization: Bearer %s\"\\n' \"\${${keyvar}}\" > \"\$cfg\" && \
+      curl -fsS --max-time 25 -K \"\$cfg\" \"${base}/models\"; rc=\$?; rm -f \"\$cfg\"; exit \$rc" 2>/dev/null || true)"
+    [ -n "${raw}" ] || fetch_failed=1
   else
-    # keyless local provider: skip silently when it isn't running
-    raw="$(curl -fsS --max-time 5 "${base}/models" 2>/dev/null || true)"
+    # keyless endpoint: skip silently when unreachable
+    raw="$(curl -fsS --max-time 10 "${base}/models" 2>/dev/null || true)"
+  fi
+  # a CONFIGURED provider whose catalog fetch fails must not silently lose
+  # its routes: installing a config without them breaks working models
+  # until some later successful run
+  if [ -n "${fetch_failed}" ]; then
+    echo "30-gateway: catalog fetch FAILED for ${prefix} (configured) — refusing to install a config missing its routes" >&2
+    rm -f "${catalog_fragment}" "${rendered}"
+    exit 1
   fi
   # Keep whatever metadata the provider publishes (OpenRouter gives
   # per-token pricing + context; plain OpenAI-style /models gives none) —

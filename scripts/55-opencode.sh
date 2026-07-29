@@ -35,7 +35,8 @@ configured="$(sudo sh -c ". ${ENV_FILE} && \
     [ -n \"\${NEURALWATT_API_KEY:-}\" ] && echo neuralwatt; \
     [ -n \"\${ANTHROPIC_API_KEY:-}\" ]  && echo anthropic; \
     [ -n \"\${OPENAI_API_KEY:-}\" ]     && echo openai; \
-    [ -n \"\${OPENCODE_API_KEY:-}\" ]   && echo opencode; :; }")"
+    [ -n \"\${OPENCODE_API_KEY:-}\" ]   && echo opencode; \
+    [ -n \"\${OLLAMA_API_KEY:-}\" ]     && echo ollama; :; }")"
 if [ -z "${configured}" ]; then
   echo "55-opencode: no provider key in ${ENV_FILE} — add one and re-run" >&2
   exit 1
@@ -69,6 +70,7 @@ fallback_for() {  # provider -> one representative model id
     anthropic)  echo "anthropic/claude-haiku-4-5" ;;
     openai)     echo "openai/gpt-4o-mini" ;;
     opencode)   echo "opencode/gpt-5.5" ;;
+    ollama)     printf '%s' "${models_json}" | jq -r '[keys[] | select(startswith("ollama/"))][0] // empty' ;;
   esac
 }
 if [ "$(printf '%s' "${models_json}" | jq 'length')" -eq 0 ]; then
