@@ -1,27 +1,25 @@
-# Curated gateway catalog — explicit entries only, no provider wildcards.
-# Every entry here is a model the gateway routes AND the exact list clients
-# see: /model/info serves this catalog, and the pi extension mirrors it
-# automatically. Keys come from /etc/lavasec/lavasec.env — never inline.
-#
-# Adding a model = one entry here + re-run scripts/30-gateway.sh (or
-# `sudo systemctl restart litellm`). Providers without keys get no routes
-# on purpose — keyless models don't belong in anyone's picker.
-#
-# model_info fills metadata litellm's price DB may lack (custom endpoints,
-# very new models): costs are USD per TOKEN (not per MTok).
+# Gateway catalog. Policy (owner call, 2026-07-29):
+#   - KEYED native providers get a wildcard: dynamic listing from litellm's
+#     model DB, and ANY provider slug routes through even if unlisted.
+#   - Explicit entries where litellm's DB is blind: custom OpenAI-compatible
+#     endpoints (a wildcard there would mislist the generic openai catalog)
+#     and brand-new models the DB hasn't picked up (metadata via model_info).
+#   - Providers WITHOUT keys get no routes at all — keyless models don't
+#     belong in anyone's picker.
+# Keys come from /etc/lavasec/lavasec.env — never inline. Adding a model on
+# a custom endpoint = one entry + re-run scripts/30-gateway.sh.
+# model_info costs are USD per TOKEN (not per MTok).
 model_list:
-  - model_name: "deepseek/deepseek-chat"
+  - model_name: "deepseek/*"
     litellm_params:
-      model: "deepseek/deepseek-chat"
+      model: "deepseek/*"
       api_key: os.environ/DEEPSEEK_API_KEY
-  - model_name: "deepseek/deepseek-reasoner"
+  - model_name: "openrouter/*"
     litellm_params:
-      model: "deepseek/deepseek-reasoner"
-      api_key: os.environ/DEEPSEEK_API_KEY
-  - model_name: "openrouter/openai/gpt-4o-mini"
-    litellm_params:
-      model: "openrouter/openai/gpt-4o-mini"
+      model: "openrouter/*"
       api_key: os.environ/OPENROUTER_API_KEY
+  # in litellm's DB not yet — explicit entry carries metadata (OpenRouter
+  # published pricing); remove once the DB catches up
   - model_name: "openrouter/moonshotai/kimi-k3"
     litellm_params:
       model: "openrouter/moonshotai/kimi-k3"

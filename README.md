@@ -75,10 +75,12 @@ Clients never notice — they only hold the local gateway key.
 
 ## Adding a model
 
-One entry in `config/litellm.yaml` (see the comments there for the
-`model_info` fields custom endpoints need), then re-run
-`bash scripts/30-gateway.sh`. The gateway, `/model/info`, and pi's model
-list all pick it up together.
+Keyed native providers use wildcards (`openrouter/*`), so their catalogs
+list dynamically and *any* provider slug routes through — even unlisted
+ones. Explicit `config/litellm.yaml` entries are only needed for custom
+OpenAI-compatible endpoints and models too new for litellm's DB (see the
+comments there), then re-run `bash scripts/30-gateway.sh`. The gateway,
+`/model/info`, and pi's model list all update together.
 
 ---
 
