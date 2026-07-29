@@ -17,7 +17,12 @@ sudo npm install -g --ignore-scripts @earendil-works/pi-coding-agent >/dev/null
 # as this user, so it gets a user-domain 600 copy (root env stays root-only).
 mkdir -p "$(dirname "${KEY_FILE}")"
 key="$(sudo sh -c ". ${ENV_FILE} && printf %s \"\${LITELLM_MASTER_KEY}\"")"
-(umask 077 && printf %s "${key}" > "${KEY_FILE}")
+# write only on change: services fingerprint this file's mtime to detect
+# credential rotation, so rewriting an identical key would restart them
+# (and rotate T3 Code's pairing token) on every bootstrap
+if [ ! -f "${KEY_FILE}" ] || [ "$(cat "${KEY_FILE}")" != "${key}" ]; then
+  (umask 077 && printf %s "${key}" > "${KEY_FILE}")
+fi
 chmod 600 "${KEY_FILE}"
 
 # export for interactive shells (idempotent marker block)

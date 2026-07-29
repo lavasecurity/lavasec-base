@@ -51,7 +51,9 @@ t3_bin="$(command -v t3)"
 # process start, so a rotated key would otherwise leave a byte-identical
 # unit running with stale secrets. mtime+size (not content) — no
 # secret-derived material lands in a world-readable unit file.
-tok_fp="$(stat -c '%Y:%s' "${KEY_FILE}" "${HOME}/.config/lavasec/github-token" 2>/dev/null | sha256sum | awk '{print $1}')"
+# `|| true` inside the group: the GitHub token is optional (setup.sh lets
+# it be skipped), and a failing stat under pipefail would kill the script
+tok_fp="$( { stat -c '%Y:%s' "${KEY_FILE}" "${HOME}/.config/lavasec/github-token" 2>/dev/null || true; } | sha256sum | awk '{print $1}')"
 
 unit_tmp="$(mktemp)"
 cat > "${unit_tmp}" <<EOF
