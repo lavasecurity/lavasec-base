@@ -105,7 +105,14 @@ ufw explicit deny-in, unattended-upgrades, litellm log rotation.
    this exact single-box shape).
 3. **VM shape** — A1.Flex ARM (4 OCPU / 24 GB) assumed; on the 1 GB AMD micro the
    LiteLLM python proxy is tight.
-4. **Anthropic-native features** — via the gateway pi uses the OpenAI-compatible
+4. **Web-UI authentication** — RESOLVED (owner, 2026-07-29): keep HTTP
+   basic auth on the OpenCode web UI (`OPENCODE_SERVER_PASSWORD`,
+   generated into `~/.config/lavasec/opencode-web-password`). Basic auth
+   is the only mechanism OpenCode's server supports — no token, cookie,
+   or prompt-suppression option — so the browser popup is the cost of
+   defence-in-depth over the tailnet. The bind guard refuses to leave an
+   unauthenticated server running.
+5. **Anthropic-native features** — via the gateway pi uses the OpenAI-compatible
    surface. If we later want native Anthropic features (prompt caching, thinking),
    use LiteLLM's `/anthropic` passthrough or put `ANTHROPIC_API_KEY` directly on
    the VM for pi. Not needed for v0.
