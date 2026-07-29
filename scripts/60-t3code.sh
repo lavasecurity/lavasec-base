@@ -70,24 +70,31 @@ sudo systemctl daemon-reload
 sudo systemctl enable t3code >/dev/null
 sudo systemctl restart t3code
 
+# wildcard bind is a security failure, not a warning: stop the unit before
+# exiting so nothing keeps listening beyond the tailnet
+if ss -tln | grep -qE '(0\.0\.0\.0|\[::\]):3773'; then
+  sudo systemctl stop t3code
+  echo "60-t3code: server bound beyond the tailnet — unit stopped, refusing" >&2
+  exit 1
+fi
+
+# readiness = HTTP answers, not just a listening socket (the socket opens
+# before the app serves)
 up=""
 for _ in $(seq 1 40); do
-  if ss -tln | grep -q "${ts_ip}:3773"; then
+  if curl -fsS --max-time 5 "http://${ts_ip}:3773/" -o /dev/null 2>/dev/null; then
     up=1
     break
   fi
-  sleep 1
+  if ss -tln | grep -qE '(0\.0\.0\.0|\[::\]):3773'; then
+    sudo systemctl stop t3code
+    echo "60-t3code: server bound beyond the tailnet — unit stopped, refusing" >&2
+    exit 1
+  fi
+  sleep 2
 done
 if [ -z "${up}" ]; then
-  echo "60-t3code: server did not come up — journalctl -u t3code -n 50" >&2
-  exit 1
-fi
-if ss -tln | grep -qE '(0\.0\.0\.0|\[::\]):3773'; then
-  echo "60-t3code: server exposed beyond the tailnet — refusing" >&2
-  exit 1
-fi
-if ! curl -fsS --max-time 15 "http://${ts_ip}:3773/" -o /dev/null; then
-  echo "60-t3code: tailnet HTTP check failed — journalctl -u t3code -n 50" >&2
+  echo "60-t3code: server did not answer on the tailnet — journalctl -u t3code -n 50" >&2
   exit 1
 fi
 
@@ -99,11 +106,14 @@ if [ -n "${token}" ]; then
 else
   echo "60-t3code: pairing token: journalctl -u t3code | grep Token"
 fi
-if ! sudo tailscale serve status >/dev/null 2>&1 \
-    || sudo tailscale serve status 2>&1 | grep -q "No serve config"; then
-  enable_url="$(timeout 20 sudo tailscale serve --bg 3773 </dev/null 2>&1 \
-    | grep -oE 'https://login\.tailscale\.com/f/serve[^ ]*' || true)"
-  if [ -n "${enable_url}" ]; then
-    echo "60-t3code: optional HTTPS upgrade — enable Serve for this tailnet at ${enable_url}, then re-run"
-  fi
+# NEVER auto-enable Serve: `tailscale serve --bg` mutates persistent
+# daemon state (tailnet-wide HTTPS on :443, surviving reboots). This
+# script only reports the option; the owner opts in deliberately. The
+# node-specific enable URL is only obtainable from a mutating attempt, so
+# we point at the command instead.
+if sudo tailscale serve status 2>&1 | grep -qi "no serve config"; then
+  echo "60-t3code: optional HTTPS upgrade (not enabled by this script):"
+  # target the BOUND address — a bare port would proxy to loopback, where
+  # nothing listens
+  echo "           sudo tailscale serve --bg http://${ts_ip}:3773   # prints the tailnet enable URL if needed"
 fi
