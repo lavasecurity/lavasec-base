@@ -58,6 +58,18 @@ export default function (pi: ExtensionAPI) {
         maxTokens: 16384,
       },
       {
+        id: "opencode/gpt-5.5",
+        name: "GPT-5.5 via OpenCode Zen (lava-gateway)",
+        reasoning: true,
+        input: ["text"],
+        // OpenCode Zen endpoint. $/MTok = Zen credit rates, base tier
+        // (≤272K input); Go-subscription usage is flat-rate but pi
+        // displays the credit rates
+        cost: { input: 5, output: 30, cacheRead: 0.5, cacheWrite: 0 },
+        contextWindow: 272000,
+        maxTokens: 32768,
+      },
+      {
         id: "neuralwatt/qwen3.6-35b",
         name: "Qwen 3.6 35B via Neuralwatt (lava-gateway)",
         reasoning: true,
