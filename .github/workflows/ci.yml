@@ -33,19 +33,20 @@ jobs:
 
       - name: no credential-bearing curl options
         run: |
-          # Structural rule, not a pattern match on secret shapes: this repo
-          # passes NO curl headers or credentials on the command line — every
-          # request builds a 0600 config file and uses `curl -K`. Chasing the
-          # shape of the value is unwinnable (variables, attached args,
-          # bundled flags all evade it), so the OPTION itself is banned.
-          # Covers -H/--header/-u/--user incl. bundled (-sH) and attached
-          # (-H"..."); --user-agent is deliberately not matched.
-          if grep -n 'curl' scripts/*.sh setup.sh bootstrap.sh \
-              | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' \
-              | grep -E -- '-{1,2}[A-Za-z]*(H|header|u|user)([^-A-Za-z]|$)'; then
-            echo "^^ curl must not take -H/--header/-u/--user: write a 0600 config file and use -K" >&2
-            exit 1
-          fi
+          # Structural rule, not shape-matching: this repo passes NO curl
+          # headers or credentials on the command line — every request writes
+          # a 0600 config file and uses `curl -K`. Matching the *value* is
+          # unwinnable (variables, attached args, bundled flags), so the
+          # OPTION is banned. Line continuations are joined first, since an
+          # option can sit on a later physical line than its `curl`.
+          for f in scripts/*.sh setup.sh bootstrap.sh; do
+            sed -e ':a' -e '/\\$/{N;s/\\\n//;ba' -e '}' "$f" \
+              | grep -v '^[[:space:]]*#' \
+              | grep -n 'curl' \
+              | grep -E -- '(^|[^-A-Za-z])-[A-Za-z]*[Hu]|--(header|user)([^-A-Za-z]|=|$)' \
+              | sed "s|^|$f:|" && { echo "^^ curl must not take -H/--header/-u/--user: write a 0600 config file and use -K" >&2; exit 1; }
+          done
+          echo "no credential-bearing curl options"
 
       - name: no secret-shaped strings committed
         run: |
