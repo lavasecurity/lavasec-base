@@ -76,6 +76,67 @@ rendered_content="$(sudo sh -c "set -a && . ${ENV_FILE} && if ${LANGFUSE_TEST}; 
   !skip { print }
 ' \"${REPO_DIR}/config/litellm.yaml\"")"
 printf '%s\n' "${rendered_content}" > "${rendered}"
+# --- sync real catalogs from each provider's own /models endpoint ---
+# Wildcards route anything but LIST only what litellm's bundled price DB
+# happens to know (stale: e.g. OpenCode Zen's 60 models showed up as 1,
+# kimi-k3 missing entirely). Providers publish the truth at /models, so
+# enumerate that and emit explicit entries. Wildcards stay in the template
+# for ad-hoc slugs; these entries make the LISTING complete and accurate.
+# prefix|base_url|key_var   (empty key_var = no auth, e.g. local ollama)
+PROVIDER_CATALOGS="opencode|https://opencode.ai/zen/v1|OPENCODE_API_KEY
+neuralwatt|https://api.neuralwatt.com/v1|NEURALWATT_API_KEY
+openrouter|https://openrouter.ai/api/v1|OPENROUTER_API_KEY
+deepseek|https://api.deepseek.com/v1|DEEPSEEK_API_KEY
+ollama|${OLLAMA_BASE:-http://127.0.0.1:11434/v1}|"
+
+catalog_fragment="$(mktemp)"
+while IFS='|' read -r prefix base keyvar; do
+  [ -n "${prefix}" ] || continue
+  if [ -n "${keyvar}" ]; then
+    key="$(sudo sh -c ". ${ENV_FILE} && printf %s \"\${${keyvar}:-}\"")"
+    [ -n "${key}" ] || continue
+    ids="$(curl -fsS --max-time 25 -H "Authorization: Bearer ${key}" "${base}/models" 2>/dev/null | jq -r '.data[]?.id // empty' 2>/dev/null || true)"
+  else
+    # keyless local provider: skip silently when it isn't running
+    ids="$(curl -fsS --max-time 5 "${base}/models" 2>/dev/null | jq -r '.data[]?.id // empty' 2>/dev/null || true)"
+  fi
+  [ -n "${ids}" ] || continue
+  count=0
+  while IFS= read -r id; do
+    [ -n "${id}" ] || continue
+    case "${id}" in *'"'*|*'*'*) continue ;; esac   # skip ids we can't quote safely
+    {
+      echo "  - model_name: \"${prefix}/${id}\""
+      echo "    litellm_params:"
+      echo "      model: \"openai/${id}\""
+      echo "      api_base: \"${base}\""
+      if [ -n "${keyvar}" ]; then
+        echo "      api_key: os.environ/${keyvar}"
+      else
+        echo "      api_key: \"none\""
+      fi
+      echo "    model_info:"
+      echo "      mode: chat"
+    } >> "${catalog_fragment}"
+    count=$((count + 1))
+  done <<< "${ids}"
+  echo "30-gateway: synced ${count} models from ${prefix}"
+done <<< "${PROVIDER_CATALOGS}"
+
+# splice the generated entries into model_list (before general_settings)
+if [ -s "${catalog_fragment}" ]; then
+  spliced="$(mktemp)"
+  awk -v frag="${catalog_fragment}" '
+    /^general_settings:/ && !done {
+      while ((getline line < frag) > 0) print line
+      close(frag); done = 1
+    }
+    { print }
+  ' "${rendered}" > "${spliced}"
+  mv "${spliced}" "${rendered}"
+fi
+rm -f "${catalog_fragment}"
+
 if ! grep -q "model_name" "${rendered}"; then
   echo "30-gateway: rendered catalog has no models — no provider key in ${ENV_FILE} matches any template section" >&2
   rm -f "${rendered}"

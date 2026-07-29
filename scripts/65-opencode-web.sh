@@ -30,13 +30,25 @@ if [ -z "${ts_ip}" ]; then
 fi
 
 oc_bin="$(command -v opencode)"
+
+# The tailnet is a trust boundary, not an authenticator: any peer device
+# (or a compromised one) that reaches this port would otherwise drive the
+# agent with this user's filesystem, gateway key and GH_TOKEN. OpenCode
+# supports HTTP basic auth via OPENCODE_SERVER_PASSWORD — generate one
+# once, keep it owner-only beside the other secrets.
+WEB_PW_FILE="${HOME}/.config/lavasec/opencode-web-password"
+if [ ! -s "${WEB_PW_FILE}" ]; then
+  mkdir -p "$(dirname "${WEB_PW_FILE}")"
+  (umask 077 && openssl rand -hex 24 > "${WEB_PW_FILE}")
+fi
+chmod 600 "${WEB_PW_FILE}"
 # Credential-change fingerprint: ExecStart reads the token files only at
 # process start, so a rotated key would otherwise leave a byte-identical
 # unit running with stale secrets. mtime+size (not content) — no
 # secret-derived material lands in a world-readable unit file.
 # `|| true` inside the group: the GitHub token is optional (setup.sh lets
 # it be skipped), and a failing stat under pipefail would kill the script
-tok_fp="$( { stat -c '%Y:%s' "${KEY_FILE}" "${HOME}/.config/lavasec/github-token" 2>/dev/null || true; } | sha256sum | awk '{print $1}')"
+tok_fp="$( { stat -c '%Y:%s' "${KEY_FILE}" "${WEB_PW_FILE}" "${HOME}/.config/lavasec/github-token" 2>/dev/null || true; } | sha256sum | awk '{print $1}')"
 
 unit_tmp="$(mktemp)"
 cat > "${unit_tmp}" <<EOF
@@ -50,7 +62,7 @@ Wants=network-online.target
 User=${USER}
 Environment=HOME=${HOME}
 WorkingDirectory=${HOME}
-ExecStart=/bin/bash -c 'export LITELLM_MASTER_KEY="\$(cat ${KEY_FILE})"; [ -r ${HOME}/.config/lavasec/github-token ] && export GH_TOKEN="\$(cat ${HOME}/.config/lavasec/github-token)"; exec ${oc_bin} web --hostname ${ts_ip} --port ${PORT}'
+ExecStart=/bin/bash -c 'export LITELLM_MASTER_KEY="\$(cat ${KEY_FILE})"; export OPENCODE_SERVER_USERNAME=lavasec; export OPENCODE_SERVER_PASSWORD="\$(cat ${WEB_PW_FILE})"; [ -r ${HOME}/.config/lavasec/github-token ] && export GH_TOKEN="\$(cat ${HOME}/.config/lavasec/github-token)"; exec ${oc_bin} web --hostname ${ts_ip} --port ${PORT}'
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
@@ -90,8 +102,16 @@ refuse_if_wildcard
 
 wait_ready() {
   for _ in $(seq 1 "$1"); do
-    if curl -fsS --max-time 5 "http://${ts_ip}:${PORT}/" -o /dev/null 2>/dev/null; then
+    # 401 proves it is serving AND that auth is enforced; -o /dev/null
+    # with --max-time keeps this cheap
+    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://${ts_ip}:${PORT}/" 2>/dev/null || true)"
+    if [ "${code}" = "401" ]; then
       return 0
+    fi
+    if [ "${code}" = "200" ]; then
+      sudo systemctl stop opencode-web
+      echo "65-opencode-web: server answered WITHOUT auth — unit stopped, refusing" >&2
+      exit 1
     fi
     refuse_if_wildcard
     sleep 2
@@ -108,4 +128,5 @@ if ! wait_ready 30; then
 fi
 refuse_if_wildcard   # authoritative: a slow wildcard start can answer first
 
-echo "65-opencode-web: OK (http://${ts_name}:${PORT} — tailnet devices only)"
+echo "65-opencode-web: OK (http://${ts_name}:${PORT} — tailnet devices only, basic auth enforced)"
+echo "65-opencode-web: sign in as 'lavasec'; password: cat ${WEB_PW_FILE}"
