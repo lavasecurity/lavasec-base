@@ -70,3 +70,16 @@ else
   printf '%s\n' "${reply}" | tail -5 >&2
   exit 1
 fi
+
+# bare-`pi` defaults for interactive shells: provider pinned to the gateway,
+# default model = the round-trip model verified above; user flags override
+# (later flags win). The block is REPLACED on every run so the default
+# tracks whichever provider keys this box currently has.
+# --follow-symlinks: a dotfiles-managed (symlinked) .bashrc must keep
+# pointing at its target, not be replaced by a regular file
+sed -i --follow-symlinks '/^# >>> lavasec-base pi defaults >>>$/,/^# <<< lavasec-base pi defaults <<<$/d' "${HOME}/.bashrc"
+{
+  echo "# >>> lavasec-base pi defaults >>>"
+  echo "pi() { command pi --provider lava-gateway --model ${PI_CHECK_MODEL} \"\$@\"; }"
+  echo "# <<< lavasec-base pi defaults <<<"
+} >> "${HOME}/.bashrc"

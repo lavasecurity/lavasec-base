@@ -39,7 +39,9 @@ sudoedit /etc/lavasec/lavasec.env   # fill in real keys
 ```
 
 The last step of bootstrap proves the whole chain with a real completion:
-`pi → gateway → provider → "LAVA-GATEWAY-OK"`.
+`pi → gateway → provider → "LAVA-GATEWAY-OK"`. After that, a bare `pi` in any
+new shell defaults to the gateway and the verified model — your own
+`--provider`/`--model` flags override.
 
 ## Layout
 
