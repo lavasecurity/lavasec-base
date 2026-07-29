@@ -62,6 +62,7 @@ else
   if [ -n "${tok}" ]; then
     mkdir -p "$(dirname "${TOKEN_FILE}")"
     (umask 077 && printf '%s\n' "${tok}" > "${TOKEN_FILE}")
+    chmod 600 "${TOKEN_FILE}"  # umask covers new files only; enforce on pre-existing too
     echo "   written (600)."
   else
     echo "   skipped — the repo-sync step of bootstrap will fail with"
@@ -77,6 +78,9 @@ else
   read -rp "   Join a tailnet now? [y/N] " yn
   case "${yn}" in
     [Yy]*)
+      # prerequisites first (idempotent): a minimal image may lack curl/jq,
+      # and the tailscale step needs both
+      bash scripts/10-system.sh
       # exit 1 here is EXPECTED pre-login (NeedsLogin); a real install
       # failure is caught by the binary check below
       bash scripts/50-tailscale.sh || true

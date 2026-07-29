@@ -39,6 +39,7 @@ Guided — the wizard walks keys → sync token → tailnet → bootstrap, keeps
 anything that already exists, and never echoes a secret:
 
 ```bash
+sudo apt-get update -q && sudo apt-get install -y git   # minimal images lack git
 git clone https://github.com/lavasecurity/lavasec-base.git
 cd lavasec-base
 ./setup.sh
