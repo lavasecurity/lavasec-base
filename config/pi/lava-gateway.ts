@@ -25,19 +25,19 @@ interface GatewayModelInfo {
 }
 
 const FALLBACK = [
-  { id: "deepseek/deepseek-chat", reasoning: false, vision: false, inCost: 0.27, outCost: 1.1, ctx: 128000, maxOut: 8192 },
-  { id: "deepseek/deepseek-reasoner", reasoning: true, vision: false, inCost: 0.55, outCost: 2.19, ctx: 128000, maxOut: 65536 },
-  { id: "openrouter/openai/gpt-4o-mini", reasoning: false, vision: true, inCost: 0.15, outCost: 0.6, ctx: 128000, maxOut: 16384 },
-  { id: "anthropic/claude-haiku-4-5", reasoning: true, vision: true, inCost: 1, outCost: 5, ctx: 200000, maxOut: 8192 },
-  { id: "openai/gpt-4o-mini", reasoning: false, vision: true, inCost: 0.15, outCost: 0.6, ctx: 128000, maxOut: 16384 },
-  { id: "opencode/gpt-5.5", reasoning: true, vision: false, inCost: 5, outCost: 30, ctx: 272000, maxOut: 32768 },
-  { id: "neuralwatt/qwen3.6-35b", reasoning: true, vision: false, inCost: 0, outCost: 0, ctx: 131072, maxOut: 32768 },
+  { id: "deepseek/deepseek-chat", name: "DeepSeek Chat", reasoning: false, vision: false, inCost: 0.27, outCost: 1.1, ctx: 128000, maxOut: 8192 },
+  { id: "deepseek/deepseek-reasoner", name: "DeepSeek Reasoner", reasoning: true, vision: false, inCost: 0.55, outCost: 2.19, ctx: 128000, maxOut: 65536 },
+  { id: "openrouter/openai/gpt-4o-mini", name: "GPT-4o mini via OpenRouter", reasoning: false, vision: true, inCost: 0.15, outCost: 0.6, ctx: 128000, maxOut: 16384 },
+  { id: "anthropic/claude-haiku-4-5", name: "Claude Haiku 4.5", reasoning: true, vision: true, inCost: 1, outCost: 5, ctx: 200000, maxOut: 8192 },
+  { id: "openai/gpt-4o-mini", name: "GPT-4o mini", reasoning: false, vision: true, inCost: 0.15, outCost: 0.6, ctx: 128000, maxOut: 16384 },
+  { id: "opencode/gpt-5.5", name: "GPT-5.5 via OpenCode Zen", reasoning: true, vision: false, inCost: 5, outCost: 30, ctx: 272000, maxOut: 32768 },
+  { id: "neuralwatt/qwen3.6-35b", name: "Qwen 3.6 35B via Neuralwatt", reasoning: true, vision: false, inCost: 0, outCost: 0, ctx: 131072, maxOut: 32768 },
 ];
 
-function toPiModel(m: { id: string; reasoning: boolean; vision: boolean; inCost: number; outCost: number; ctx: number; maxOut: number; cacheRead?: number }) {
+function toPiModel(m: { id: string; name?: string; reasoning: boolean; vision: boolean; inCost: number; outCost: number; ctx: number; maxOut: number; cacheRead?: number }) {
   return {
     id: m.id,
-    name: `${m.id} (lava-gateway)`,
+    name: `${m.name ?? m.id} (lava-gateway)`,
     reasoning: m.reasoning,
     input: m.vision ? (["text", "image"] as const) : (["text"] as const),
     cost: { input: m.inCost, output: m.outCost, cacheRead: m.cacheRead ?? 0, cacheWrite: 0 },
