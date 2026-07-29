@@ -1,0 +1,39 @@
+name: ci
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shell syntax + shellcheck
+        run: |
+          bash -n bootstrap.sh scripts/*.sh
+          shellcheck bootstrap.sh scripts/*.sh
+
+      - name: config sanity
+        run: |
+          python3 -c "import yaml" 2>/dev/null || python3 -m pip install --quiet pyyaml
+          python3 - <<'EOF'
+          import yaml
+          cfg = yaml.safe_load(open("config/litellm.yaml"))
+          mk = cfg.get("general_settings", {}).get("master_key")
+          assert mk == "os.environ/LITELLM_MASTER_KEY", f"master_key misconfigured: {mk!r}"
+          EOF
+          grep -qE "^lavasecurity/lavasec-base$" config/repos.txt
+
+      - name: no secret-shaped strings committed
+        run: |
+          if grep -rInE "sk-[A-Za-z0-9_-]{20,}|github_pat_[A-Za-z0-9_]{24,}|ghp_[A-Za-z0-9]{24,}" --exclude-dir=.git .; then
+            echo "possible committed secret (see matches above)" >&2
+            exit 1
+          fi

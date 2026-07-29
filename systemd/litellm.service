@@ -1,0 +1,23 @@
+# Installed by scripts/30-gateway.sh as /etc/systemd/system/litellm.service.
+# The 127.0.0.1 bind is non-negotiable.
+[Unit]
+Description=LiteLLM gateway (lavasec-base)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=lavasec
+Group=lavasec
+EnvironmentFile=/etc/lavasec/lavasec.env
+Environment=HOME=/var/lib/lavasec
+StateDirectory=lavasec
+ExecStart=/opt/lavasec/venv/bin/litellm --config /opt/lavasec/litellm.yaml --host 127.0.0.1 --port 4000
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,21 @@
+name: security
+
+# Calls the org's reusable security backstop (lavasecurity/.github).
+# gitleaks only: this repo is shell + config — no JS/TS app logic (semgrep)
+# and no mobile source (mobsfscan). The naive secret-shape grep in ci.yml
+# stays as an independent zero-cost second layer.
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  security:
+    uses: lavasecurity/.github/.github/workflows/security.yml@main
+    with:
+      gitleaks: true
+      actionlint: true

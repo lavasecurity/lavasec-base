@@ -1,0 +1,8 @@
+# One repo per line (org/name). 20-git.sh clones each into ~/src/<name>,
+# or pulls if already present. Lines starting with # are ignored.
+# Box-specific or private entries go in config/repos.local.txt (gitignored,
+# same format) — this committed file carries public-safe names only.
+lavasecurity/.github
+lavasecurity/lavasec-base
+lavasecurity/lavasec-doc
+lavasecurity/lavasec-ios

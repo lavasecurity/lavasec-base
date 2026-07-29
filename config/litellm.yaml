@@ -1,0 +1,38 @@
+# Gateway model routing. Keys come from /etc/lavasec/lavasec.env via the
+# systemd unit — never inline here. Wildcards pass model ids straight through,
+# so pi asks for e.g. "anthropic/claude-sonnet-5" and LiteLLM routes it.
+model_list:
+  - model_name: "anthropic/*"
+    litellm_params:
+      model: "anthropic/*"
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: "openai/*"
+    litellm_params:
+      model: "openai/*"
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: "openrouter/*"
+    litellm_params:
+      model: "openrouter/*"
+      api_key: os.environ/OPENROUTER_API_KEY
+  - model_name: "deepseek/*"
+    litellm_params:
+      model: "deepseek/*"
+      api_key: os.environ/DEEPSEEK_API_KEY
+  # OpenCode Zen/Go and Neuralwatt are OpenAI-compatible endpoints litellm
+  # has no native provider for — routed via openai/* + api_base.
+  - model_name: "opencode/*"
+    litellm_params:
+      model: "openai/*"
+      api_base: "https://opencode.ai/zen/v1"
+      api_key: os.environ/OPENCODE_API_KEY
+  - model_name: "neuralwatt/*"
+    litellm_params:
+      model: "openai/*"
+      api_base: "https://api.neuralwatt.com/v1"
+      api_key: os.environ/NEURALWATT_API_KEY
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+
+litellm_settings:
+  drop_params: true
