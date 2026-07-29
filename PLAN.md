@@ -50,12 +50,15 @@ model picker fed by `/model/info`. Gateway key read server-side from
 app's source or dependency tree.
 
 **C3 — console staged (60-console.sh)**
-Build `~/src/lavasec-console` at the pinned tag, systemd unit on loopback
-:3000, `tailscale serve` for tailnet HTTPS (app never leaves loopback).
-SKIPs with a notice when the console repo is not synced. Done when: the
-console answers over the tailnet hostname and the public IP still exposes
-only 22. Runtime state (sessions/assets) lives in
-`~/.local/share/lavasec-console/` — never in any git repo.
+Converge the console at `CONSOLE_DIR` (default `~/lavasec-console`; owned
+by this script exclusively — the console stays out of repos.txt): absent →
+clone + build + install; present → `pull --ff-only` + rebuild; clone
+impossible → SKIP with notice. Systemd unit on loopback :3000,
+`tailscale serve` for tailnet HTTPS (app never leaves loopback). Done
+when: the console answers over the tailnet hostname and the public IP
+still exposes only 22. Runtime state (sessions/assets) lives in
+`~/.local/share/lavasec-console/` — never in any git repo. (Version
+pinning is a later one-line option; C3 tracks the console's main.)
 
 **S5 — backlog (optional)**
 ufw explicit deny-in, unattended-upgrades, litellm log rotation.

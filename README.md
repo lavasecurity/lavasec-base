@@ -26,13 +26,28 @@ tool — only ever talks to the loopback gateway.
 - **loopback-only by construction** — the gateway binds `127.0.0.1` and bootstrap verifies it; pair with an SSH-only cloud security list and nothing else is reachable
 - **idempotent bootstrap** — re-run it any time; it repairs instead of breaking, and fails loudly with instructions when something needs you
 
+## From zero
+
+Any Ubuntu 24.04 VM works (Oracle free tier A1.Flex is the tested
+reference). At creation time you need exactly three things: your SSH
+public key, a public IP, and a security list that allows **SSH only** —
+everything else stays closed forever.
+
 ## Quickstart (on the VM)
 
-Assumes Ubuntu 24.04 (Oracle free tier, A1.Flex or AMD), default user with sudo.
+Guided — the wizard walks keys → sync token → tailnet → bootstrap, keeps
+anything that already exists, and never echoes a secret:
 
 ```bash
+sudo apt-get update -q && sudo apt-get install -y git   # minimal images lack git
 git clone https://github.com/lavasecurity/lavasec-base.git
 cd lavasec-base
+./setup.sh
+```
+
+Manual, if you prefer doing the same by hand:
+
+```bash
 sudo install -m 600 -D env/example.env /etc/lavasec/lavasec.env
 sudoedit /etc/lavasec/lavasec.env   # fill in real keys
 ./bootstrap.sh
@@ -47,6 +62,7 @@ new shell defaults to the gateway and the verified model — your own
 
 | path | what |
 |---|---|
+| `setup.sh` | interactive first-run wizard (keys → token → tailnet → bootstrap) |
 | `bootstrap.sh` | runs `scripts/` in order; idempotent |
 | `scripts/10-system.sh` | base packages (git, python3+venv, node 22) |
 | `scripts/20-git.sh` | git identity, auth, sync repos from `config/repos.txt` |
