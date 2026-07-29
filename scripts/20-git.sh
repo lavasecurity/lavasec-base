@@ -100,7 +100,7 @@ for line in "${lines[@]}"; do
       # `|| ls_rc=$?` — a bare failing command would abort under set -e
       # before we could classify its exit code
       ls_rc=0
-      git -C "${dest}" ls-remote --exit-code --heads origin "${branch}" >/dev/null 2>&1 || ls_rc=$?
+      git -C "${dest}" ls-remote --exit-code origin "refs/heads/${branch}" >/dev/null 2>&1 || ls_rc=$?
       case "${ls_rc}" in
         0) ;;
         2) branch_gone=1 ;;

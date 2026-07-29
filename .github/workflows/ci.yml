@@ -31,18 +31,19 @@ jobs:
           EOF
           grep -qE "^lavasecurity/lavasec-base$" config/repos.txt
 
-      - name: no credential passed in argv
+      - name: no credential-bearing curl options
         run: |
-          # Secrets must never be command-line arguments: /proc/<pid>/cmdline
-          # is world-readable, so `curl -H "Authorization: ..."` or `curl -u`
-          # leaks them to any local user. Use a 0600 config file + `curl -K`.
-          # Covers every spelling curl accepts: -H/--header and -u/--user,
-          # space-separated OR attached (-H"..."), and bundled short flags
-          # (-sH). Case-insensitive: HTTP header names are.
-          if grep -nEi -- '-{1,2}[A-Za-z]*(H|header)[[:space:]]*["'"'"']?authorization|curl[^|]*(^|[[:space:]])-{1,2}[A-Za-z]*(u|user)([[:space:]]|["'"'"']|$)' \
-              scripts/*.sh setup.sh bootstrap.sh \
-              | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#'; then
-            echo "^^ credential passed via argv — use a 0600 curl config file with -K" >&2
+          # Structural rule, not a pattern match on secret shapes: this repo
+          # passes NO curl headers or credentials on the command line — every
+          # request builds a 0600 config file and uses `curl -K`. Chasing the
+          # shape of the value is unwinnable (variables, attached args,
+          # bundled flags all evade it), so the OPTION itself is banned.
+          # Covers -H/--header/-u/--user incl. bundled (-sH) and attached
+          # (-H"..."); --user-agent is deliberately not matched.
+          if grep -n 'curl' scripts/*.sh setup.sh bootstrap.sh \
+              | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' \
+              | grep -E -- '-{1,2}[A-Za-z]*(H|header|u|user)([^-A-Za-z]|$)'; then
+            echo "^^ curl must not take -H/--header/-u/--user: write a 0600 config file and use -K" >&2
             exit 1
           fi
 
