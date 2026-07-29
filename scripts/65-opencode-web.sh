@@ -73,6 +73,12 @@ else
 fi
 rm -f "${unit_tmp}"
 
+# a unit can be ACTIVE but DISABLED (would vanish on reboot); repair
+# enablement without restarting, so pairing survives
+if ! systemctl is-enabled --quiet opencode-web 2>/dev/null; then
+  sudo systemctl enable opencode-web >/dev/null
+fi
+
 refuse_if_wildcard() {
   if ss -tln | grep -qE "(0\.0\.0\.0|\[::\]):${PORT}"; then
     sudo systemctl stop opencode-web

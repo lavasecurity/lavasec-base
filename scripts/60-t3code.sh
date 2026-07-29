@@ -93,6 +93,12 @@ else
 fi
 rm -f "${unit_tmp}"
 
+# a unit can be ACTIVE but DISABLED (would vanish on reboot); repair
+# enablement without restarting, so pairing survives
+if ! systemctl is-enabled --quiet t3code 2>/dev/null; then
+  sudo systemctl enable t3code >/dev/null
+fi
+
 # wildcard bind is a security failure, not a warning: stop the unit before
 # exiting so nothing keeps listening beyond the tailnet
 refuse_if_wildcard() {
@@ -132,13 +138,15 @@ refuse_if_wildcard
 
 # no match must not kill the script (pipefail) — the fallback below is the
 # intended path when the journal has rolled or the format changed
-token="$(journalctl -u t3code --no-pager 2>/dev/null \
+# sudo: the invoking user may not be in adm/systemd-journal, and the
+# one-time pairing token is only surfaced through the service journal
+token="$(sudo journalctl -u t3code --no-pager 2>/dev/null \
   | grep -oE 'Token: [A-Z0-9]+' | tail -1 | awk '{print $2}' || true)"
 echo "60-t3code: OK (http://${ts_name}:3773 — tailnet devices only)"
 if [ -n "${token}" ]; then
   echo "60-t3code: pair a device: http://${ts_name}:3773/pair#token=${token}"
 else
-  echo "60-t3code: pairing token: journalctl -u t3code | grep Token"
+  echo "60-t3code: pairing token: sudo journalctl -u t3code | grep Token"
 fi
 # NEVER auto-enable Serve: `tailscale serve --bg` mutates persistent
 # daemon state (tailnet-wide HTTPS on :443, surviving reboots). This
