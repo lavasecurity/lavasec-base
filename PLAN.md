@@ -63,6 +63,14 @@ applies to everything else). Pairing token surfaced from the journal.
 State: `~/.t3` (SQLite). Done: verified reachable from a paired device,
 public IP still exposes only 22.
 
+**C4 — OpenCode web UI (65-opencode-web.sh) — shipped**
+`opencode web` on the tailnet (:4096), same posture as C3: tailnet-bound,
+wildcard-refused, HTTP readiness, restart-only-when-changed. A second
+control surface over the same gateway-wired harness — if it proves
+sufficient on mobile, T3 Code becomes optional and the two-harness split
+collapses. (`--mdns` deliberately unused: it defaults the bind to
+0.0.0.0.)
+
 **S5 — backlog (optional)**
 ufw explicit deny-in, unattended-upgrades, litellm log rotation.
 
