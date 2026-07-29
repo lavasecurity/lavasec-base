@@ -62,9 +62,13 @@ if [ -z "${PI_CHECK_MODEL:-}" ]; then
   # Ollama Cloud publishes no fixed ids we can assume — take the first one
   # the gateway actually routes
   if [ -z "${PI_CHECK_MODEL}" ] && sudo sh -c ". ${ENV_FILE} && [ -n \"\${OLLAMA_API_KEY:-}\" ]"; then
-    PI_CHECK_MODEL="$(LITELLM_MASTER_KEY="$(cat "${KEY_FILE}")" curl -fsS --max-time 10 \
-      -H "Authorization: Bearer $(cat "${KEY_FILE}")" http://127.0.0.1:4000/model/info 2>/dev/null \
+    cfg="$(mktemp)"; chmod 600 "${cfg}"
+    cat > "${cfg}" <<EOF
+header = "Authorization: Bearer $(cat "${KEY_FILE}")"
+EOF
+    PI_CHECK_MODEL="$(curl -fsS --max-time 10 -K "${cfg}" http://127.0.0.1:4000/model/info 2>/dev/null \
       | jq -r '[.data[].model_name | select(startswith("ollama/"))][0] // empty' 2>/dev/null || true)"
+    rm -f "${cfg}"
   fi
 fi
 if [ -z "${PI_CHECK_MODEL}" ]; then

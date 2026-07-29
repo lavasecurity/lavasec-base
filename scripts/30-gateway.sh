@@ -110,8 +110,14 @@ while IFS='|' read -r prefix base keyvar routing; do
     # process argv — /proc/<pid>/cmdline is world-readable even for root
     # processes, so `-H "Authorization: Bearer ..."` would leak it to any
     # local user running ps
-    raw="$(sudo sh -c ". ${ENV_FILE} && cfg=\$(mktemp) && umask 077 && \
-      printf 'header = \"Authorization: Bearer %s\"\\n' \"\${${keyvar}}\" > \"\$cfg\" && \
+    # here-doc, not printf args: the key never reaches any argv, whatever
+    # /bin/sh happens to be (printf is a builtin in dash/bash, but the
+    # guarantee shouldn't rest on that). Config file is 077 and removed
+    # immediately; curl -K keeps the header out of the command line.
+    raw="$(sudo sh -c "umask 077; . ${ENV_FILE}; cfg=\$(mktemp); \
+      cat > \"\$cfg\" <<EOF
+header = \"Authorization: Bearer \${${keyvar}}\"
+EOF
       curl -fsS --max-time 25 -K \"\$cfg\" \"${base}/models\"; rc=\$?; rm -f \"\$cfg\"; exit \$rc" 2>/dev/null || true)"
     [ -n "${raw}" ] || fetch_failed=1
   else

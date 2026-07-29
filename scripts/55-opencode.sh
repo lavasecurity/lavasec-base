@@ -47,9 +47,23 @@ fi
 # real context/output limits, and new ones appear without editing this
 # script. Falls back to one model per configured provider if the gateway
 # is unreachable.
-models_json="$(LITELLM_MASTER_KEY="$(cat "${KEY_FILE}")" \
-  curl -fsS --max-time 15 -H "Authorization: Bearer $(cat "${KEY_FILE}")" \
-    http://127.0.0.1:4000/model/info 2>/dev/null \
+# Fetch from the gateway without putting the key in any argv: curl -K
+# reads the auth header from a 0600 config file (/proc/<pid>/cmdline is
+# world-readable, so -H "Authorization: ..." would expose it).
+gw_get() {  # $1 = path
+  local cfg rc
+  cfg="$(mktemp)"
+  chmod 600 "${cfg}"
+  cat > "${cfg}" <<EOF
+header = "Authorization: Bearer $(cat "${KEY_FILE}")"
+EOF
+  curl -fsS --max-time 15 -K "${cfg}" "http://127.0.0.1:4000$1"
+  rc=$?
+  rm -f "${cfg}"
+  return ${rc}
+}
+
+models_json="$(gw_get /model/info 2>/dev/null \
   | jq '[.data[]
         | select((.model_info.mode // "chat") == "chat")
         | select(.model_name | contains("*") | not)]
