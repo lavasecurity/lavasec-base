@@ -20,7 +20,7 @@ tool — only ever talks to the loopback gateway.
 
 ## What you get
 
-- **pi wired to the gateway** — one local endpoint; each provider is a gateway route plus a one-line pi model entry (five wired out of the box)
+- **pi wired to the gateway** — one local endpoint; `config/litellm.yaml` is the curated model catalog and pi mirrors it automatically
 - **repos that keep themselves fresh** — cloned into `~/src/` with a read-only fine-grained PAT
 - **one place for every key** — add or rotate a provider credential by editing one line and restarting one service
 - **loopback-only by construction** — the gateway binds `127.0.0.1` and bootstrap verifies it; pair with an SSH-only cloud security list and nothing else is reachable
@@ -72,6 +72,13 @@ sudo systemctl restart litellm
 ```
 
 Clients never notice — they only hold the local gateway key.
+
+## Adding a model
+
+One entry in `config/litellm.yaml` (see the comments there for the
+`model_info` fields custom endpoints need), then re-run
+`bash scripts/30-gateway.sh`. The gateway, `/model/info`, and pi's model
+list all pick it up together.
 
 ---
 
