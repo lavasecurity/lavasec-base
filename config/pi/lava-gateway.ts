@@ -25,9 +25,13 @@ interface GatewayModelInfo {
   };
 }
 
-// Mirrors the curated set in config/litellm.yaml — keep aligned when the
-// catalog changes (fallback is only used when the gateway is unreachable).
+// Emergency list for when the gateway is unreachable at pi startup: the
+// SUPERSET of models across every provider section in config/litellm.yaml
+// (the extension cannot know this box's keys, and entries for absent
+// routes fail loudly at the gateway — better than a provider missing).
 const FALLBACK = [
+  { id: "anthropic/claude-haiku-4-5", name: "Claude Haiku 4.5", reasoning: true, vision: true, inCost: 1, outCost: 5, cacheRead: 0.1, cacheWrite: 1.25, ctx: 200000, maxOut: 8192 },
+  { id: "openai/gpt-4o-mini", name: "GPT-4o mini", reasoning: false, vision: true, inCost: 0.15, outCost: 0.6, ctx: 128000, maxOut: 16384 },
   { id: "deepseek/deepseek-chat", name: "DeepSeek Chat", reasoning: false, vision: false, inCost: 0.27, outCost: 1.1, ctx: 128000, maxOut: 8192 },
   { id: "deepseek/deepseek-reasoner", name: "DeepSeek Reasoner", reasoning: true, vision: false, inCost: 0.55, outCost: 2.19, ctx: 128000, maxOut: 65536 },
   { id: "openrouter/openai/gpt-4o-mini", name: "GPT-4o mini via OpenRouter", reasoning: false, vision: true, inCost: 0.15, outCost: 0.6, ctx: 128000, maxOut: 16384 },

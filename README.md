@@ -68,10 +68,13 @@ The last step of bootstrap proves the whole chain with a real completion:
 
 ```bash
 sudoedit /etc/lavasec/lavasec.env
-sudo systemctl restart litellm
+bash scripts/30-gateway.sh
 ```
 
-Clients never notice — they only hold the local gateway key.
+`30-gateway.sh` re-renders the catalog for the keys you now have,
+restarts the service, and re-verifies it — required when *adding* a
+provider's first key, and harmless for a plain rotation. Clients never
+notice — they only hold the local gateway key.
 
 ## Adding a model
 
