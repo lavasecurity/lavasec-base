@@ -47,9 +47,16 @@ fi
 echo "60-t3code: $(t3 --version 2>/dev/null | head -1)"
 
 t3_bin="$(command -v t3)"
+# Credential-change fingerprint: ExecStart reads the token files only at
+# process start, so a rotated key would otherwise leave a byte-identical
+# unit running with stale secrets. mtime+size (not content) — no
+# secret-derived material lands in a world-readable unit file.
+tok_fp="$(stat -c '%Y:%s' "${KEY_FILE}" "${HOME}/.config/lavasec/github-token" 2>/dev/null | sha256sum | awk '{print $1}')"
+
 unit_tmp="$(mktemp)"
 cat > "${unit_tmp}" <<EOF
 [Unit]
+# lavasec-base credential-fingerprint: ${tok_fp}
 Description=T3 Code server (lavasec-base)
 After=network-online.target litellm.service tailscaled.service
 Wants=network-online.target

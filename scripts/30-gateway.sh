@@ -35,7 +35,9 @@ sudo /opt/lavasec/venv/bin/pip install -q --upgrade pip "litellm[proxy]${LITELLM
 
 # langfuse SDK only when tracing is configured — keeps the venv lean
 # otherwise (the callback in litellm.yaml renders under the same key)
-if sudo sh -c ". ${ENV_FILE} && [ -n \"\${LANGFUSE_PUBLIC_KEY:-}\" ]"; then
+# all three are required by the callback — installing on the public key
+# alone would give a runtime error on every request
+if sudo sh -c ". ${ENV_FILE} && [ -n \"\${LANGFUSE_PUBLIC_KEY:-}\" ] && [ -n \"\${LANGFUSE_SECRET_KEY:-}\" ] && [ -n \"\${LANGFUSE_HOST:-}\" ]"; then
   sudo /opt/lavasec/venv/bin/pip install -q langfuse
   echo "30-gateway: langfuse tracing enabled"
 fi
