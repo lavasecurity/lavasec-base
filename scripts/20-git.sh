@@ -18,6 +18,18 @@ TOKEN_FILE="${HOME}/.config/lavasec/github-token"
 mkdir -p "${SRC_DIR}"
 mkdir -p "$(dirname "${TOKEN_FILE}")"
 
+# seed a self-documenting overlay template on first run (never overwrites)
+if [ ! -e "${REPOS_LOCAL}" ]; then
+  cat > "${REPOS_LOCAL}" <<'EOF'
+# Box-local repo overlay — read by scripts/20-git.sh alongside
+# config/repos.txt, same format: one org/name per line, # ignores a line.
+# This file is gitignored: private/box-specific entries belong here and
+# never enter the tracked repo.
+# example-org/private-repo
+EOF
+  echo "20-git: created overlay template at ${REPOS_LOCAL} (add private repos there)"
+fi
+
 # org identity, not personal — this is a dedicated org VM
 git config --global user.name "Lava Security"
 git config --global user.email "285110054+lavasecurity@users.noreply.github.com"
