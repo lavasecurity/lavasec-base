@@ -41,38 +41,63 @@ if [ -z "${configured}" ]; then
   exit 1
 fi
 
-models_json='{}'
-add_model() {  # id, display, context, output
-  models_json="$(printf '%s' "${models_json}" | jq --arg id "$1" --arg n "$2" \
-    --argjson c "$3" --argjson o "$4" \
-    '. + {($id): {name: $n, limit: {context: $c, output: $o}}}')"
+# Model list comes from the gateway's own catalog (/model/info) — the same
+# source pi's extension uses — so opencode sees every routable model, with
+# real context/output limits, and new ones appear without editing this
+# script. Falls back to one model per configured provider if the gateway
+# is unreachable.
+models_json="$(LITELLM_MASTER_KEY="$(cat "${KEY_FILE}")" \
+  curl -fsS --max-time 15 -H "Authorization: Bearer $(cat "${KEY_FILE}")" \
+    http://127.0.0.1:4000/model/info 2>/dev/null \
+  | jq '[.data[]
+        | select((.model_info.mode // "chat") == "chat")
+        | select(.model_name | contains("*") | not)]
+        | unique_by(.model_name)
+        | map({ (.model_name): {
+            name: (.model_name + " (gateway)"),
+            limit: {
+              context: (.model_info.max_input_tokens // 128000),
+              output: (.model_info.max_output_tokens // 8192)
+            } } })
+        | add // {}' 2>/dev/null || echo '{}')"
+
+fallback_for() {  # provider -> one representative model id
+  case "$1" in
+    deepseek)   echo "deepseek/deepseek-chat" ;;
+    openrouter) echo "openrouter/openai/gpt-4o-mini" ;;
+    neuralwatt) echo "neuralwatt/qwen3.6-35b" ;;
+    anthropic)  echo "anthropic/claude-haiku-4-5" ;;
+    openai)     echo "openai/gpt-4o-mini" ;;
+    opencode)   echo "opencode/gpt-5.5" ;;
+  esac
 }
+if [ "$(printf '%s' "${models_json}" | jq 'length')" -eq 0 ]; then
+  echo "55-opencode: gateway catalog unavailable — falling back to one model per configured provider" >&2
+  for provider in ${configured}; do
+    id="$(fallback_for "${provider}")"
+    models_json="$(printf '%s' "${models_json}" | jq --arg id "${id}" \
+      '. + {($id): {name: ($id + " (gateway)"), limit: {context: 128000, output: 8192}}}')"
+  done
+fi
+
+# round-trip model: first configured provider that the catalog actually
+# offers (keeps the check aligned with this box's keys)
 check_model=""
 for provider in ${configured}; do
-  case "${provider}" in
-    deepseek)
-      add_model "deepseek/deepseek-chat" "DeepSeek Chat (gateway)" 131072 8192
-      add_model "deepseek/deepseek-reasoner" "DeepSeek Reasoner (gateway)" 131072 65536
-      : "${check_model:=deepseek/deepseek-chat}" ;;
-    openrouter)
-      add_model "openrouter/openai/gpt-4o-mini" "GPT-4o mini via OpenRouter (gateway)" 128000 16384
-      add_model "openrouter/moonshotai/kimi-k3" "Kimi K3 via OpenRouter (gateway)" 1048576 32768
-      : "${check_model:=openrouter/openai/gpt-4o-mini}" ;;
-    neuralwatt)
-      add_model "neuralwatt/qwen3.6-35b" "Qwen 3.6 35B via Neuralwatt (gateway)" 131072 32768
-      : "${check_model:=neuralwatt/qwen3.6-35b}" ;;
-    anthropic)
-      add_model "anthropic/claude-haiku-4-5" "Claude Haiku 4.5 (gateway)" 200000 8192
-      : "${check_model:=anthropic/claude-haiku-4-5}" ;;
-    openai)
-      add_model "openai/gpt-4o-mini" "GPT-4o mini (gateway)" 128000 16384
-      : "${check_model:=openai/gpt-4o-mini}" ;;
-    opencode)
-      add_model "opencode/gpt-5.5" "GPT-5.5 via OpenCode Zen (gateway)" 272000 32768
-      : "${check_model:=opencode/gpt-5.5}" ;;
-  esac
+  id="$(fallback_for "${provider}")"
+  if [ "$(printf '%s' "${models_json}" | jq --arg id "${id}" 'has($id)')" = "true" ]; then
+    check_model="${id}"
+    break
+  fi
 done
+if [ -z "${check_model}" ]; then
+  check_model="$(printf '%s' "${models_json}" | jq -r 'keys[0] // empty')"
+fi
 CHECK_MODEL="${OC_CHECK_MODEL:-${check_model}}"
+if [ -z "${CHECK_MODEL}" ]; then
+  echo "55-opencode: no usable model in the gateway catalog — check scripts/30-gateway.sh" >&2
+  exit 1
+fi
 
 # config OWNED by this script (box-staged; per-project opencode.json can
 # still override locally)

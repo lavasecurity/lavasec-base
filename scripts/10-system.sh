@@ -8,6 +8,19 @@ export DEBIAN_FRONTEND=noninteractive
 sudo apt-get update -q
 sudo apt-get install -yq git curl ca-certificates gnupg jq python3 python3-venv
 
+# gh: GitHub CLI (T3 Code's source-control provider uses it; handy in
+# shells too). Official apt repo via manual keyring — no curl|bash.
+if ! command -v gh >/dev/null; then
+  sudo install -d -m 755 /etc/apt/keyrings
+  curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+    | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg >/dev/null
+  sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+    | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
+  sudo apt-get update -q
+  sudo apt-get install -yq gh
+fi
+
 # Node >= 20 for pi. NodeSource repo added manually (keyring + sources entry),
 # not their curl|bash installer.
 node_major=0
@@ -24,4 +37,4 @@ if [ "${node_major}" -lt 20 ]; then
   sudo apt-get install -yq nodejs
 fi
 
-echo "10-system: git=$(git --version | awk '{print $3}') python=$(python3 --version | awk '{print $2}') node=$(node --version)"
+echo "10-system: git=$(git --version | awk '{print $3}') python=$(python3 --version | awk '{print $2}') node=$(node --version) gh=$(gh --version 2>/dev/null | head -1 | awk '{print $3}')"

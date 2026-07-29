@@ -118,4 +118,15 @@ if [ "${#failed[@]}" -gt 0 ]; then
   print_pat_instructions
   exit 1
 fi
+# gh authenticates from GH_TOKEN — same read-only PAT, same file. Managed
+# block, replaced each run (--follow-symlinks keeps dotfiles symlinks).
+if command -v gh >/dev/null; then
+  sed -i --follow-symlinks '/^# >>> lavasec-base gh token >>>$/,/^# <<< lavasec-base gh token <<<$/d' "${HOME}/.bashrc"
+  {
+    echo "# >>> lavasec-base gh token >>>"
+    echo "[ -r ${TOKEN_FILE} ] && export GH_TOKEN=\"\$(cat ${TOKEN_FILE})\""
+    echo "# <<< lavasec-base gh token <<<"
+  } >> "${HOME}/.bashrc"
+fi
+
 echo "20-git: OK (${synced} repos in ${SRC_DIR})"

@@ -58,7 +58,7 @@ Wants=network-online.target
 User=${USER}
 Environment=HOME=${HOME}
 WorkingDirectory=${HOME}
-ExecStart=/bin/bash -c 'export LITELLM_MASTER_KEY="\$(cat ${KEY_FILE})"; exec ${t3_bin} serve --mode web --host ${ts_ip} --port 3773 --no-browser'
+ExecStart=/bin/bash -c 'export LITELLM_MASTER_KEY="\$(cat ${KEY_FILE})"; [ -r ${HOME}/.config/lavasec/github-token ] && export GH_TOKEN="\$(cat ${HOME}/.config/lavasec/github-token)"; exec ${t3_bin} serve --mode web --host ${ts_ip} --port 3773 --no-browser'
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
@@ -86,34 +86,45 @@ rm -f "${unit_tmp}"
 
 # wildcard bind is a security failure, not a warning: stop the unit before
 # exiting so nothing keeps listening beyond the tailnet
-if ss -tln | grep -qE '(0\.0\.0\.0|\[::\]):3773'; then
-  sudo systemctl stop t3code
-  echo "60-t3code: server bound beyond the tailnet — unit stopped, refusing" >&2
-  exit 1
-fi
-
-# readiness = HTTP answers, not just a listening socket (the socket opens
-# before the app serves)
-up=""
-for _ in $(seq 1 40); do
-  if curl -fsS --max-time 5 "http://${ts_ip}:3773/" -o /dev/null 2>/dev/null; then
-    up=1
-    break
-  fi
+refuse_if_wildcard() {
   if ss -tln | grep -qE '(0\.0\.0\.0|\[::\]):3773'; then
     sudo systemctl stop t3code
     echo "60-t3code: server bound beyond the tailnet — unit stopped, refusing" >&2
     exit 1
   fi
-  sleep 2
-done
-if [ -z "${up}" ]; then
-  echo "60-t3code: server did not answer on the tailnet — journalctl -u t3code -n 50" >&2
-  exit 1
-fi
+}
+refuse_if_wildcard   # catches an already-running wildcard service
 
-token="$(journalctl -u t3code -n 200 --no-pager 2>/dev/null \
-  | grep -oE 'Token: [A-Z0-9]+' | tail -1 | awk '{print $2}')"
+# readiness = HTTP answers, not just a listening socket (the socket opens
+# before the app serves)
+wait_ready() {
+  for _ in $(seq 1 "$1"); do
+    if curl -fsS --max-time 5 "http://${ts_ip}:3773/" -o /dev/null 2>/dev/null; then
+      return 0
+    fi
+    refuse_if_wildcard
+    sleep 2
+  done
+  return 1
+}
+if ! wait_ready 40; then
+  # systemd-active but not serving (hung): restart once so repeated
+  # bootstraps can recover instead of failing forever
+  echo "60-t3code: no HTTP response — restarting the service once" >&2
+  sudo systemctl restart t3code
+  if ! wait_ready 30; then
+    echo "60-t3code: server did not answer on the tailnet — journalctl -u t3code -n 50" >&2
+    exit 1
+  fi
+fi
+# authoritative: a slow wildcard start can answer HTTP before any earlier
+# check saw its socket, so re-check AFTER readiness
+refuse_if_wildcard
+
+# no match must not kill the script (pipefail) — the fallback below is the
+# intended path when the journal has rolled or the format changed
+token="$(journalctl -u t3code --no-pager 2>/dev/null \
+  | grep -oE 'Token: [A-Z0-9]+' | tail -1 | awk '{print $2}' || true)"
 echo "60-t3code: OK (http://${ts_name}:3773 — tailnet devices only)"
 if [ -n "${token}" ]; then
   echo "60-t3code: pair a device: http://${ts_name}:3773/pair#token=${token}"
