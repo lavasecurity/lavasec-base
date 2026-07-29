@@ -31,10 +31,31 @@ PAT (decision 1 resolved), clone/pull every repo in `config/repos.txt` into
 listed; a re-run only pulls (idempotent); a missing/insufficient token fails
 loudly with setup instructions.
 
-**S4 — pi wired to gateway (this PR)**
+**S4 — pi wired to gateway (shipped)**
 `40-pi.sh`: install pi, install the `config/pi/` gateway extension, verify.
 Done when: `pi --list-models` shows the gateway models and a one-shot prompt
 round-trips through LiteLLM.
+
+**C1 — tailscale (this PR)**
+`50-tailscale.sh`: overlay access with zero new cloud ingress (outbound
+WireGuard); joining the tailnet is one-time owner-interactive, loud-fail
+until done. Done when: `tailscale status` is Running, and an external scan
+of the public IP still shows only port 22.
+
+**C2 — lavasec-console repo (separate repo)**
+T3 app (Next.js + tRPC + Tailwind): streaming chat over the gateway with a
+model picker fed by `/model/info`. Gateway key read server-side from
+`~/.config/lavasec/gateway-key`; no secrets in the repo, nothing
+`NEXT_PUBLIC`. Consumed by base at a pinned tag — base never carries the
+app's source or dependency tree.
+
+**C3 — console staged (60-console.sh)**
+Build `~/src/lavasec-console` at the pinned tag, systemd unit on loopback
+:3000, `tailscale serve` for tailnet HTTPS (app never leaves loopback).
+SKIPs with a notice when the console repo is not synced. Done when: the
+console answers over the tailnet hostname and the public IP still exposes
+only 22. Runtime state (sessions/assets) lives in
+`~/.local/share/lavasec-console/` — never in any git repo.
 
 **S5 — backlog (optional)**
 ufw explicit deny-in, unattended-upgrades, litellm log rotation.

@@ -52,6 +52,8 @@ new shell defaults to the gateway and the verified model — your own
 | `scripts/20-git.sh` | git identity, auth, sync repos from `config/repos.txt` |
 | `scripts/30-gateway.sh` | LiteLLM install + hardened systemd service |
 | `scripts/40-pi.sh` | pi install + gateway provider extension + live round-trip check |
+| `scripts/50-tailscale.sh` | tailnet access, zero new cloud ingress (one-time device approval) |
+| `scripts/60-console.sh` | lavasec-console web UI on the tailnet (skips if repo unavailable) |
 | `config/litellm.yaml` | gateway model routes (keys via env, never inline) |
 | `config/pi/` | pi extension registering the local gateway |
 | `config/repos.txt` | repos to sync |
