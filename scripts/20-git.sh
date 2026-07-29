@@ -110,7 +110,10 @@ for line in "${lines[@]}"; do
     # A branch pushed without -u has a remote ref but NO tracking config;
     # `pull --ff-only` then fails with "no tracking information" and would
     # fail the whole bootstrap — exactly what this skip exists to prevent.
-    if [ -n "${branch}" ] && [ -z "${branch_gone}" ] \
+    # ls_rc = 0 required: without it, a broken token (ls-remote fails) on an
+    # untracked branch would report "left alone" and let bootstrap exit 0
+    # with unusable credentials
+    if [ -n "${branch}" ] && [ -z "${branch_gone}" ] && [ "${ls_rc}" = "0" ] \
         && ! git -C "${dest}" rev-parse --abbrev-ref "@{upstream}" >/dev/null 2>&1; then
       echo "20-git: ${repo} on '${branch}' (no tracking upstream) — left alone"
     elif [ -n "${branch_gone}" ]; then
