@@ -50,13 +50,28 @@ EOF
 
 # round-trip: a real completion opencode → gateway → provider.
 # success = exit 0 AND sentinel (the prompt contains the sentinel, so
-# output alone could false-pass on an echoed error)
-if reply=$(LITELLM_MASTER_KEY="$(cat "${KEY_FILE}")" timeout 120 opencode run \
-      --model "lava-gateway/deepseek/deepseek-chat" "Reply with exactly: OC-GATEWAY-OK" 2>&1) \
-    && printf '%s' "${reply}" | grep -q "OC-GATEWAY-OK"; then
-  echo "55-opencode: OK (round-trip via gateway verified)"
-else
-  echo "55-opencode: round-trip FAILED:" >&2
+# output alone could false-pass on an echoed error). One retry: the very
+# first run after a config change can hang on opencode's server spawn
+# (observed once — 120s of silence, then killed), and heals immediately.
+oc_roundtrip() {
+  LITELLM_MASTER_KEY="$(cat "${KEY_FILE}")" timeout 120 opencode run \
+    --model "lava-gateway/deepseek/deepseek-chat" \
+    "Reply with exactly: OC-GATEWAY-OK" 2>&1 < /dev/null
+}
+ok=""
+for attempt in 1 2; do
+  if reply=$(oc_roundtrip) && printf '%s' "${reply}" | grep -q "OC-GATEWAY-OK"; then
+    ok=1
+    break
+  fi
+  if [ "${attempt}" = 1 ]; then
+    echo "55-opencode: round-trip attempt 1 failed — retrying once" >&2
+    sleep 5
+  fi
+done
+if [ -z "${ok}" ]; then
+  echo "55-opencode: round-trip FAILED after retry:" >&2
   printf '%s\n' "${reply}" | tail -5 >&2
   exit 1
 fi
+echo "55-opencode: OK (round-trip via gateway verified)"
