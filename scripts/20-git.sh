@@ -86,7 +86,14 @@ for line in "${lines[@]}"; do
 
   if [ -d "${dest}/.git" ]; then
     git -C "${dest}" remote set-url origin "${url}"  # heals pre-HTTPS remotes
-    if out=$(git -C "${dest}" pull --ff-only 2>&1 < /dev/null); then
+    # A clone can legitimately sit on a branch this box's agents created,
+    # or one deleted upstream after merge. Syncing is a convenience, not a
+    # mandate: leave such checkouts untouched and keep bootstrap green
+    # rather than failing every other repo (and never touch local work).
+    branch="$(git -C "${dest}" branch --show-current 2>/dev/null || true)"
+    if [ -n "${branch}" ] && ! git -C "${dest}" ls-remote --exit-code --heads origin "${branch}" >/dev/null 2>&1; then
+      echo "20-git: ${repo} on '${branch}' (no upstream branch) — left alone"
+    elif out=$(git -C "${dest}" pull --ff-only 2>&1 < /dev/null); then
       echo "20-git: pulled ${repo}"
       synced=$((synced + 1))
     elif heads=$(git -C "${dest}" ls-remote --heads origin 2>/dev/null < /dev/null) \
