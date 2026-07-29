@@ -36,7 +36,11 @@ jobs:
           # Secrets must never be command-line arguments: /proc/<pid>/cmdline
           # is world-readable, so `curl -H "Authorization: ..."` or `curl -u`
           # leaks them to any local user. Use a 0600 config file + `curl -K`.
-          if grep -nEi '((^|[[:space:]])(-H|--header)[[:space:]]+.?authorization|curl[^|]*[[:space:]](-u|--user)[[:space:]])' scripts/*.sh setup.sh bootstrap.sh \
+          # Covers every spelling curl accepts: -H/--header and -u/--user,
+          # space-separated OR attached (-H"..."), and bundled short flags
+          # (-sH). Case-insensitive: HTTP header names are.
+          if grep -nEi -- '-{1,2}[A-Za-z]*(H|header)[[:space:]]*["'"'"']?authorization|curl[^|]*-{1,2}[A-Za-z]*(u|user)[[:space:]]*["'"'"']?[^[:space:]"'"'"']*:' \
+              scripts/*.sh setup.sh bootstrap.sh \
               | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#'; then
             echo "^^ credential passed via argv — use a 0600 curl config file with -K" >&2
             exit 1
