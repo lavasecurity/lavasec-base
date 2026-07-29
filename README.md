@@ -4,6 +4,7 @@
 [![security](https://github.com/lavasecurity/lavasec-base/actions/workflows/security.yml/badge.svg)](https://github.com/lavasecurity/lavasec-base/actions/workflows/security.yml)
 ![platform](https://img.shields.io/badge/platform-Ubuntu%2024.04%20·%20arm64%20%7C%20x86__64-E95420)
 ![free tier](https://img.shields.io/badge/runs%20on-Oracle%20Always%20Free-2f6db3)
+[![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 Turn a free-tier cloud VM into a self-contained AI agent box with one command:
 **[pi](https://pi.dev)** as the coding agent, **git** keeping your repos fresh,
@@ -22,7 +23,7 @@ tool — only ever talks to the loopback gateway. Nothing else, nowhere else.
 - 🤖 **pi wired to the gateway** — one local endpoint, models from every provider you configure
 - 🔁 **repos that keep themselves fresh** — cloned into `~/src/` with a read-only fine-grained PAT
 - 🔑 **one place for every key** — add or rotate a provider credential by editing one line and restarting one service
-- 🧱 **loopback-only by construction** — the gateway binds `127.0.0.1`; SSH is the box's only open port
+- 🧱 **loopback-only by construction** — the gateway binds `127.0.0.1` and bootstrap verifies it; pair with an SSH-only cloud security list and nothing else is reachable
 - ♻️ **idempotent bootstrap** — re-run it any time; it repairs instead of breaking, and fails loudly with instructions when something needs you
 
 ## 🚀 Quickstart (on the VM)
