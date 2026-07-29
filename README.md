@@ -20,7 +20,7 @@ tool — only ever talks to the loopback gateway. Nothing else, nowhere else.
 
 ## ✨ What you get
 
-- 🤖 **pi wired to the gateway** — one local endpoint, models from every provider you configure
+- 🤖 **pi wired to the gateway** — one local endpoint; each provider is a gateway route plus a one-line pi model entry (five wired out of the box)
 - 🔁 **repos that keep themselves fresh** — cloned into `~/src/` with a read-only fine-grained PAT
 - 🔑 **one place for every key** — add or rotate a provider credential by editing one line and restarting one service
 - 🧱 **loopback-only by construction** — the gateway binds `127.0.0.1` and bootstrap verifies it; pair with an SSH-only cloud security list and nothing else is reachable
