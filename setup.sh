@@ -57,7 +57,8 @@ if [ -s "${TOKEN_FILE}" ]; then
 else
   echo "   Create a fine-grained PAT: github.com → Settings → Developer"
   echo "   settings → Fine-grained tokens. Repository access: the repos in"
-  echo "   config/repos.txt (or All). Permissions: Contents = Read-only."
+  echo "   config/repos.txt (or All). Permissions: Contents = Read-only"
+  echo "   AND Pull requests = Read-only (for gh / the web console)."
   read -rsp "   Paste token (input hidden; Enter to skip repo sync): " tok; echo
   tok="${tok//[[:space:]]/}"  # clipboard paste often carries a trailing newline/space
   if [ -n "${tok}" ]; then

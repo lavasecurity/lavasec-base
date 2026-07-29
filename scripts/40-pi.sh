@@ -17,7 +17,12 @@ sudo npm install -g --ignore-scripts @earendil-works/pi-coding-agent >/dev/null
 # as this user, so it gets a user-domain 600 copy (root env stays root-only).
 mkdir -p "$(dirname "${KEY_FILE}")"
 key="$(sudo sh -c ". ${ENV_FILE} && printf %s \"\${LITELLM_MASTER_KEY}\"")"
-(umask 077 && printf %s "${key}" > "${KEY_FILE}")
+# write only on change: services fingerprint this file's mtime to detect
+# credential rotation, so rewriting an identical key would restart them
+# (and rotate T3 Code's pairing token) on every bootstrap
+if [ ! -f "${KEY_FILE}" ] || [ "$(cat "${KEY_FILE}")" != "${key}" ]; then
+  (umask 077 && printf %s "${key}" > "${KEY_FILE}")
+fi
 chmod 600 "${KEY_FILE}"
 
 # export for interactive shells (idempotent marker block)
@@ -54,6 +59,17 @@ if [ -z "${PI_CHECK_MODEL:-}" ]; then
     elif [ -n \"\${ANTHROPIC_API_KEY:-}\" ];  then echo anthropic/claude-haiku-4-5; \
     elif [ -n \"\${OPENAI_API_KEY:-}\" ];     then echo openai/gpt-4o-mini; \
     elif [ -n \"\${OPENCODE_API_KEY:-}\" ];   then echo opencode/gpt-5.5; fi")"
+  # Ollama Cloud publishes no fixed ids we can assume — take the first one
+  # the gateway actually routes
+  if [ -z "${PI_CHECK_MODEL}" ] && sudo sh -c ". ${ENV_FILE} && [ -n \"\${OLLAMA_API_KEY:-}\" ]"; then
+    cfg="$(mktemp)"; chmod 600 "${cfg}"
+    cat > "${cfg}" <<EOF
+header = "Authorization: Bearer $(cat "${KEY_FILE}")"
+EOF
+    PI_CHECK_MODEL="$(curl -fsS --max-time 10 -K "${cfg}" http://127.0.0.1:4000/model/info 2>/dev/null \
+      | jq -r '[.data[].model_name | select(startswith("ollama/"))][0] // empty' 2>/dev/null || true)"
+    rm -f "${cfg}"
+  fi
 fi
 if [ -z "${PI_CHECK_MODEL}" ]; then
   echo "40-pi: no provider API key configured in ${ENV_FILE} — cannot verify a round-trip. Add at least one provider key and re-run." >&2

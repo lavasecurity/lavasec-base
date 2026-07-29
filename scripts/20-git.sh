@@ -2,7 +2,9 @@
 set -euo pipefail
 # Sync org repos over HTTPS with ONE fine-grained READ-ONLY PAT
 # (resource owner: lavasecurity, repository access: All repositories,
-# permissions: Contents = Read-only — owner decision: this box mirrors the
+# permissions: Contents + Pull requests = Read-only (Contents alone clones
+# fine but 403s on private-repo PR reads, which gh and T3 Code's
+# source-control view need) — owner decision: this box mirrors the
 # whole org, so config/repos.txt is the explicit sync inventory and the
 # token stays maintenance-free). Deliberately not an OAuth user token —
 # those are account-wide read/WRITE and cannot be narrowed. The token lives
@@ -40,7 +42,9 @@ print_pat_instructions() {
   {
     echo "  Fine-grained PAT setup: github.com → Settings → Developer settings"
     echo "  → Fine-grained tokens. Resource owner: lavasecurity. Repository"
-    echo "  access: All repositories. Permissions: Contents = Read-only."
+    echo "  access: All repositories. Permissions: Contents = Read-only"
+    echo "  AND Pull requests = Read-only (needed by gh / the web console"
+    echo "  for private-repo PR views; Contents alone still clones)."
     echo "  Install/rotate on this VM:"
     echo "    umask 077 && printf %s '<token>' > ${TOKEN_FILE}"
   } >&2
@@ -118,4 +122,15 @@ if [ "${#failed[@]}" -gt 0 ]; then
   print_pat_instructions
   exit 1
 fi
+# gh authenticates from GH_TOKEN — same read-only PAT, same file. Managed
+# block, replaced each run (--follow-symlinks keeps dotfiles symlinks).
+if command -v gh >/dev/null; then
+  sed -i --follow-symlinks '/^# >>> lavasec-base gh token >>>$/,/^# <<< lavasec-base gh token <<<$/d' "${HOME}/.bashrc"
+  {
+    echo "# >>> lavasec-base gh token >>>"
+    echo "[ -r ${TOKEN_FILE} ] && export GH_TOKEN=\"\$(cat ${TOKEN_FILE})\""
+    echo "# <<< lavasec-base gh token <<<"
+  } >> "${HOME}/.bashrc"
+fi
+
 echo "20-git: OK (${synced} repos in ${SRC_DIR})"

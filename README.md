@@ -71,6 +71,7 @@ new shell defaults to the gateway and the verified model — your own
 | `scripts/50-tailscale.sh` | tailnet access, zero new cloud ingress (one-time device approval) |
 | `scripts/55-opencode.sh` | OpenCode harness wired to the gateway (T3 Code's agent backend) |
 | `scripts/60-t3code.sh` | T3 Code (`t3 serve`) web/mobile UI on the tailnet |
+| `scripts/65-opencode-web.sh` | OpenCode's own web UI on the tailnet (second surface) |
 | `config/litellm.yaml` | gateway model routes (keys via env, never inline) |
 | `config/pi/` | pi extension registering the local gateway |
 | `config/repos.txt` | repos to sync |
@@ -96,6 +97,14 @@ bash scripts/30-gateway.sh
 restarts the service, and re-verifies it — required when *adding* a
 provider's first key, and harmless for a plain rotation. Clients never
 notice — they only hold the local gateway key.
+
+## Tracing (optional)
+
+Add `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and `LANGFUSE_HOST` to
+`/etc/lavasec/lavasec.env` and re-run `bash scripts/30-gateway.sh`. Because
+every client reaches providers through the gateway, instrumenting it once
+traces them all — pi, opencode, and the web UIs — with no client-side SDK.
+Leave the keys empty and nothing is installed or sent.
 
 ## Adding a model
 

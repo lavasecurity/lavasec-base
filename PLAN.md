@@ -42,7 +42,7 @@ WireGuard); joining the tailnet is one-time owner-interactive, loud-fail
 until done. Done when: `tailscale status` is Running, and an external scan
 of the public IP still shows only port 22.
 
-**C2 — OpenCode harness via the gateway (55-opencode.sh)**
+**C2 — OpenCode harness via the gateway (55-opencode.sh) — shipped**
 T3 Code (pingdotgg/t3code — the web/mobile UI, owner's pick 2026-07-29,
 replacing the earlier bespoke-console idea) drives agent-harness CLIs, not
 model APIs. OpenCode is the supported harness whose provider config takes
@@ -52,16 +52,24 @@ bridge: install OpenCode, register the loopback gateway as its provider
 round-trips through the gateway. pi stays as the direct-CLI agent (not in
 T3 Code's harness list today).
 
-**C3 — T3 Code on the tailnet (60-t3code.sh)**
-Install T3 Code (npm) and run `t3 serve` (:3773) as a systemd unit;
-loopback bind + `tailscale serve` — its remote-access doc names Tailscale
-Serve as a supported path, and hosted pairing never proxies traffic. The
-one-time owner pairing token is owner-interactive (loud instructions until
-paired; `t3 auth` thereafter). Done when the web app answers over the
-tailnet, an agent session driven from it reaches providers only via the
-gateway, and the public IP still exposes only 22. VERIFIED SO FAR: package
-`t3@0.0.30` exists; bare/`--help` invocations are silent headless — serve
-mechanics, bind flags, and state location must be confirmed on the box.
+**C3 — T3 Code on the tailnet (60-t3code.sh) — shipped**
+`t3 serve` as a systemd unit bound to the TAILNET interface (100.x), never
+loopback-only, never 0.0.0.0: reachable by your tailnet devices, closed to
+the internet. Tailscale Serve (HTTPS) requires a one-time tailnet-wide
+admin-console enable, so it stays an optional upgrade the script prints
+rather than a gate on bootstrap. node-pty has no linux prebuilds — that
+single native module is built deliberately (`--ignore-scripts` still
+applies to everything else). Pairing token surfaced from the journal.
+State: `~/.t3` (SQLite). Done: verified reachable from a paired device,
+public IP still exposes only 22.
+
+**C4 — OpenCode web UI (65-opencode-web.sh) — shipped**
+`opencode web` on the tailnet (:4096), same posture as C3: tailnet-bound,
+wildcard-refused, HTTP readiness, restart-only-when-changed. A second
+control surface over the same gateway-wired harness — if it proves
+sufficient on mobile, T3 Code becomes optional and the two-harness split
+collapses. (`--mdns` deliberately unused: it defaults the bind to
+0.0.0.0.)
 
 **S5 — backlog (optional)**
 ufw explicit deny-in, unattended-upgrades, litellm log rotation.
@@ -85,7 +93,8 @@ ufw explicit deny-in, unattended-upgrades, litellm log rotation.
 
 1. **Git auth on the VM** — RESOLVED (S3, owner calls 2026-07-29): HTTPS with
    one fine-grained read-only PAT, repository access **All repositories**
-   (Contents: Read-only) — this box mirrors the whole org by design, so
+   (Contents + Pull requests: Read-only — Contents alone clones but 403s
+   on private-repo PR reads, verified) — this box mirrors the org, so
    `config/repos.txt` is the explicit sync inventory and the token needs no
    per-repo maintenance. Deploy keys were implemented first and worked, but
    are 1:1 per repo. OAuth user tokens rejected: account-wide read/write,
@@ -96,7 +105,14 @@ ufw explicit deny-in, unattended-upgrades, litellm log rotation.
    this exact single-box shape).
 3. **VM shape** — A1.Flex ARM (4 OCPU / 24 GB) assumed; on the 1 GB AMD micro the
    LiteLLM python proxy is tight.
-4. **Anthropic-native features** — via the gateway pi uses the OpenAI-compatible
+4. **Web-UI authentication** — RESOLVED (owner, 2026-07-29): keep HTTP
+   basic auth on the OpenCode web UI (`OPENCODE_SERVER_PASSWORD`,
+   generated into `~/.config/lavasec/opencode-web-password`). Basic auth
+   is the only mechanism OpenCode's server supports — no token, cookie,
+   or prompt-suppression option — so the browser popup is the cost of
+   defence-in-depth over the tailnet. The bind guard refuses to leave an
+   unauthenticated server running.
+5. **Anthropic-native features** — via the gateway pi uses the OpenAI-compatible
    surface. If we later want native Anthropic features (prompt caching, thinking),
    use LiteLLM's `/anthropic` passthrough or put `ANTHROPIC_API_KEY` directly on
    the VM for pi. Not needed for v0.
