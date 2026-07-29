@@ -1,35 +1,103 @@
-# Gateway model routing. Keys come from /etc/lavasec/lavasec.env via the
-# systemd unit — never inline here. Wildcards pass model ids straight through,
-# so pi asks for e.g. "anthropic/claude-sonnet-5" and LiteLLM routes it.
+# Gateway catalog TEMPLATE. 30-gateway.sh renders this at install time:
+# each "requires <KEY>" section is included only when that key is set
+# non-empty in /etc/lavasec/lavasec.env — so every box's live catalog
+# contains exactly its keyed providers, and keyless models never appear
+# in anyone's picker.
+#
+# Policy (owner calls, 2026-07-29):
+#   - Keyed NATIVE providers get a wildcard: dynamic listing from litellm's
+#     model DB, and ANY provider slug routes through even if unlisted.
+#   - Explicit entries where litellm's DB is blind: custom OpenAI-compatible
+#     endpoints (a wildcard there would mislist the generic openai catalog)
+#     and brand-new models (metadata via model_info; costs are USD per
+#     TOKEN, not per MTok).
+# Keys come from /etc/lavasec/lavasec.env — never inline.
 model_list:
-  - model_name: "anthropic/*"
-    litellm_params:
-      model: "anthropic/*"
-      api_key: os.environ/ANTHROPIC_API_KEY
-  - model_name: "openai/*"
-    litellm_params:
-      model: "openai/*"
-      api_key: os.environ/OPENAI_API_KEY
-  - model_name: "openrouter/*"
-    litellm_params:
-      model: "openrouter/*"
-      api_key: os.environ/OPENROUTER_API_KEY
+  # >>> requires DEEPSEEK_API_KEY
   - model_name: "deepseek/*"
     litellm_params:
       model: "deepseek/*"
       api_key: os.environ/DEEPSEEK_API_KEY
-  # OpenCode Zen/Go and Neuralwatt are OpenAI-compatible endpoints litellm
-  # has no native provider for — routed via openai/* + api_base.
-  - model_name: "opencode/*"
+  # <<< requires DEEPSEEK_API_KEY
+  # >>> requires OPENROUTER_API_KEY
+  - model_name: "openrouter/*"
+    litellm_params:
+      model: "openrouter/*"
+      api_key: os.environ/OPENROUTER_API_KEY
+  # not in litellm's DB yet — explicit entry carries metadata (OpenRouter
+  # published pricing); remove once the DB catches up
+  - model_name: "openrouter/moonshotai/kimi-k3"
+    litellm_params:
+      model: "openrouter/moonshotai/kimi-k3"
+      api_key: os.environ/OPENROUTER_API_KEY
+    model_info:
+      mode: chat
+      supports_reasoning: true
+      input_cost_per_token: 0.000003
+      output_cost_per_token: 0.000015
+      cache_read_input_token_cost: 0.0000003
+      max_input_tokens: 1048576
+      max_output_tokens: 32768
+  # <<< requires OPENROUTER_API_KEY
+  # >>> requires ANTHROPIC_API_KEY
+  - model_name: "anthropic/*"
+    litellm_params:
+      model: "anthropic/*"
+      api_key: os.environ/ANTHROPIC_API_KEY
+  # <<< requires ANTHROPIC_API_KEY
+  # >>> requires OPENAI_API_KEY
+  - model_name: "openai/*"
     litellm_params:
       model: "openai/*"
-      api_base: "https://opencode.ai/zen/v1"
-      api_key: os.environ/OPENCODE_API_KEY
-  - model_name: "neuralwatt/*"
+      api_key: os.environ/OPENAI_API_KEY
+  # <<< requires OPENAI_API_KEY
+  # >>> requires NEURALWATT_API_KEY
+  - model_name: "neuralwatt/qwen3.6-35b"
     litellm_params:
-      model: "openai/*"
+      model: "openai/qwen3.6-35b"
       api_base: "https://api.neuralwatt.com/v1"
       api_key: os.environ/NEURALWATT_API_KEY
+    model_info:
+      mode: chat
+      supports_reasoning: true
+      max_input_tokens: 131072
+      max_output_tokens: 32768
+  - model_name: "neuralwatt/kimi-k2.6"
+    litellm_params:
+      model: "openai/kimi-k2.6"
+      api_base: "https://api.neuralwatt.com/v1"
+      api_key: os.environ/NEURALWATT_API_KEY
+    model_info:
+      mode: chat
+      supports_reasoning: true
+      max_input_tokens: 131072
+      max_output_tokens: 32768
+  - model_name: "neuralwatt/glm-5.2"
+    litellm_params:
+      model: "openai/glm-5.2"
+      api_base: "https://api.neuralwatt.com/v1"
+      api_key: os.environ/NEURALWATT_API_KEY
+    model_info:
+      mode: chat
+      supports_reasoning: true
+      max_input_tokens: 131072
+      max_output_tokens: 32768
+  # <<< requires NEURALWATT_API_KEY
+  # >>> requires OPENCODE_API_KEY
+  - model_name: "opencode/gpt-5.5"
+    litellm_params:
+      model: "openai/gpt-5.5"
+      api_base: "https://opencode.ai/zen/v1"
+      api_key: os.environ/OPENCODE_API_KEY
+    model_info:
+      mode: chat
+      supports_reasoning: true
+      input_cost_per_token: 0.000005
+      output_cost_per_token: 0.00003
+      cache_read_input_token_cost: 0.0000005
+      max_input_tokens: 272000
+      max_output_tokens: 32768
+  # <<< requires OPENCODE_API_KEY
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY

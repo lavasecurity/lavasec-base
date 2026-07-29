@@ -33,9 +33,11 @@ install -m 644 "${REPO_DIR}/config/pi/lava-gateway.ts" "${EXT_DIR}/lava-gateway.
 
 # extension discovery check — static registration only, NOT proof of a
 # working path (that's the round-trip below)
+# provider-agnostic: any lava-gateway row proves the extension registered;
+# which SPECIFIC model works is the round-trip check's job below
 pi_models=$(LITELLM_MASTER_KEY="$(cat "${KEY_FILE}")" pi --list-models 2>&1) || true
-if ! printf '%s\n' "${pi_models}" | grep -q "deepseek/deepseek-chat"; then
-  echo "40-pi: gateway models not visible in pi --list-models:" >&2
+if ! printf '%s\n' "${pi_models}" | grep -q "lava-gateway"; then
+  echo "40-pi: no lava-gateway models visible in pi --list-models:" >&2
   printf '%s\n' "${pi_models}" | tail -5 >&2
   exit 1
 fi

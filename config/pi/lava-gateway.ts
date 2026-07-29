@@ -25,14 +25,21 @@ interface GatewayModelInfo {
   };
 }
 
+// Emergency list for when the gateway is unreachable at pi startup: the
+// SUPERSET of models across every provider section in config/litellm.yaml
+// (the extension cannot know this box's keys, and entries for absent
+// routes fail loudly at the gateway — better than a provider missing).
 const FALLBACK = [
+  { id: "anthropic/claude-haiku-4-5", name: "Claude Haiku 4.5", reasoning: true, vision: true, inCost: 1, outCost: 5, cacheRead: 0.1, cacheWrite: 1.25, ctx: 200000, maxOut: 8192 },
+  { id: "openai/gpt-4o-mini", name: "GPT-4o mini", reasoning: false, vision: true, inCost: 0.15, outCost: 0.6, ctx: 128000, maxOut: 16384 },
   { id: "deepseek/deepseek-chat", name: "DeepSeek Chat", reasoning: false, vision: false, inCost: 0.27, outCost: 1.1, ctx: 128000, maxOut: 8192 },
   { id: "deepseek/deepseek-reasoner", name: "DeepSeek Reasoner", reasoning: true, vision: false, inCost: 0.55, outCost: 2.19, ctx: 128000, maxOut: 65536 },
   { id: "openrouter/openai/gpt-4o-mini", name: "GPT-4o mini via OpenRouter", reasoning: false, vision: true, inCost: 0.15, outCost: 0.6, ctx: 128000, maxOut: 16384 },
-  { id: "anthropic/claude-haiku-4-5", name: "Claude Haiku 4.5", reasoning: true, vision: true, inCost: 1, outCost: 5, cacheRead: 0.1, cacheWrite: 1.25, ctx: 200000, maxOut: 8192 },
-  { id: "openai/gpt-4o-mini", name: "GPT-4o mini", reasoning: false, vision: true, inCost: 0.15, outCost: 0.6, ctx: 128000, maxOut: 16384 },
-  { id: "opencode/gpt-5.5", name: "GPT-5.5 via OpenCode Zen", reasoning: true, vision: false, inCost: 5, outCost: 30, cacheRead: 0.5, ctx: 272000, maxOut: 32768 },
+  { id: "openrouter/moonshotai/kimi-k3", name: "Kimi K3 via OpenRouter", reasoning: true, vision: false, inCost: 3, outCost: 15, cacheRead: 0.3, ctx: 1048576, maxOut: 32768 },
   { id: "neuralwatt/qwen3.6-35b", name: "Qwen 3.6 35B via Neuralwatt", reasoning: true, vision: false, inCost: 0, outCost: 0, ctx: 131072, maxOut: 32768 },
+  { id: "neuralwatt/kimi-k2.6", name: "Kimi K2.6 via Neuralwatt", reasoning: true, vision: false, inCost: 0, outCost: 0, ctx: 131072, maxOut: 32768 },
+  { id: "neuralwatt/glm-5.2", name: "GLM 5.2 via Neuralwatt", reasoning: true, vision: false, inCost: 0, outCost: 0, ctx: 131072, maxOut: 32768 },
+  { id: "opencode/gpt-5.5", name: "GPT-5.5 via OpenCode Zen", reasoning: true, vision: false, inCost: 5, outCost: 30, cacheRead: 0.5, ctx: 272000, maxOut: 32768 },
 ];
 
 function toPiModel(m: { id: string; name?: string; reasoning: boolean; vision: boolean; inCost: number; outCost: number; ctx: number; maxOut: number; cacheRead?: number; cacheWrite?: number }) {
@@ -58,7 +65,7 @@ async function fetchGatewayModels() {
   const body = (await res.json()) as { data?: GatewayModelInfo[] };
   const seen = new Set<string>();
   const models = (body.data ?? [])
-    .filter((m) => m.model_info?.mode === "chat")
+    .filter((m) => (m.model_info?.mode ?? "chat") === "chat")
     .filter((m) => m.model_name && !m.model_name.includes("*"))
     .filter((m) => (seen.has(m.model_name!) ? false : (seen.add(m.model_name!), true)))
     .map((m) =>

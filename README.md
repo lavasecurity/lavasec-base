@@ -20,7 +20,7 @@ tool — only ever talks to the loopback gateway.
 
 ## What you get
 
-- **pi wired to the gateway** — one local endpoint; each provider is a gateway route plus a one-line pi model entry (five wired out of the box)
+- **pi wired to the gateway** — one local endpoint; `config/litellm.yaml` is the curated model catalog and pi mirrors it automatically
 - **repos that keep themselves fresh** — cloned into `~/src/` with a read-only fine-grained PAT
 - **one place for every key** — add or rotate a provider credential by editing one line and restarting one service
 - **loopback-only by construction** — the gateway binds `127.0.0.1` and bootstrap verifies it; pair with an SSH-only cloud security list and nothing else is reachable
@@ -70,10 +70,22 @@ new shell defaults to the gateway and the verified model — your own
 
 ```bash
 sudoedit /etc/lavasec/lavasec.env
-sudo systemctl restart litellm
+bash scripts/30-gateway.sh
 ```
 
-Clients never notice — they only hold the local gateway key.
+`30-gateway.sh` re-renders the catalog for the keys you now have,
+restarts the service, and re-verifies it — required when *adding* a
+provider's first key, and harmless for a plain rotation. Clients never
+notice — they only hold the local gateway key.
+
+## Adding a model
+
+Keyed native providers use wildcards (`openrouter/*`), so their catalogs
+list dynamically and *any* provider slug routes through — even unlisted
+ones. Explicit `config/litellm.yaml` entries are only needed for custom
+OpenAI-compatible endpoints and models too new for litellm's DB (see the
+comments there), then re-run `bash scripts/30-gateway.sh`. The gateway,
+`/model/info`, and pi's model list all update together.
 
 ---
 
