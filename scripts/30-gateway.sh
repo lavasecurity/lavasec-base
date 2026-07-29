@@ -34,7 +34,23 @@ fi
 sudo /opt/lavasec/venv/bin/pip install -q --upgrade pip "litellm[proxy]${LITELLM_VERSION:+==${LITELLM_VERSION}}"
 
 # --- config + unit ---
-sudo install -m 644 "${REPO_DIR}/config/litellm.yaml" /opt/lavasec/litellm.yaml
+# Render the catalog template: each "requires <KEY>" section is included
+# only when that key is set non-empty in the env file, so this box's live
+# catalog contains exactly its keyed providers.
+rendered="$(mktemp)"
+rendered_content="$(sudo sh -c "set -a && . ${ENV_FILE} && set +a && awk '
+  /^  # >>> requires / { skip = (ENVIRON[\$4] == \"\"); next }
+  /^  # <<< requires / { skip = 0; next }
+  !skip { print }
+' \"${REPO_DIR}/config/litellm.yaml\"")"
+printf '%s\n' "${rendered_content}" > "${rendered}"
+if ! grep -q "model_name" "${rendered}"; then
+  echo "30-gateway: rendered catalog has no models — no provider key in ${ENV_FILE} matches any template section" >&2
+  rm -f "${rendered}"
+  exit 1
+fi
+sudo install -m 644 "${rendered}" /opt/lavasec/litellm.yaml
+rm -f "${rendered}"
 sudo install -m 644 "${REPO_DIR}/systemd/litellm.service" /etc/systemd/system/litellm.service
 sudo systemctl daemon-reload
 sudo systemctl enable litellm >/dev/null
