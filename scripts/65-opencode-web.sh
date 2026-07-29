@@ -105,10 +105,11 @@ wait_ready() {
     # 401 proves it is serving AND that auth is enforced; -o /dev/null
     # with --max-time keeps this cheap
     code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://${ts_ip}:${PORT}/" 2>/dev/null || true)"
-    if [ "${code}" = "401" ]; then
-      return 0
-    fi
-    if [ "${code}" = "200" ]; then
+    # 401/403 = auth enforced; 3xx = redirect to a login page, also fine
+    case "${code}" in
+      401|403|30[0-9]) return 0 ;;
+    esac
+    if [ "${code#2}" != "${code}" ] && [ -n "${code}" ]; then
       sudo systemctl stop opencode-web
       echo "65-opencode-web: server answered WITHOUT auth — unit stopped, refusing" >&2
       exit 1

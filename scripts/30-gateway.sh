@@ -82,12 +82,12 @@ printf '%s\n' "${rendered_content}" > "${rendered}"
 # kimi-k3 missing entirely). Providers publish the truth at /models, so
 # enumerate that and emit explicit entries. Wildcards stay in the template
 # for ad-hoc slugs; these entries make the LISTING complete and accurate.
-# prefix|base_url|key_var   (empty key_var = no auth, e.g. local ollama)
+# prefix|base_url|key_var   (empty key_var = keyless endpoint)
 PROVIDER_CATALOGS="opencode|https://opencode.ai/zen/v1|OPENCODE_API_KEY
 neuralwatt|https://api.neuralwatt.com/v1|NEURALWATT_API_KEY
 openrouter|https://openrouter.ai/api/v1|OPENROUTER_API_KEY
 deepseek|https://api.deepseek.com/v1|DEEPSEEK_API_KEY
-ollama|${OLLAMA_BASE:-http://127.0.0.1:11434/v1}|"
+ollama|${OLLAMA_BASE:-https://ollama.com/v1}|OLLAMA_API_KEY"
 
 catalog_fragment="$(mktemp)"
 while IFS='|' read -r prefix base keyvar; do
@@ -95,14 +95,26 @@ while IFS='|' read -r prefix base keyvar; do
   if [ -n "${keyvar}" ]; then
     key="$(sudo sh -c ". ${ENV_FILE} && printf %s \"\${${keyvar}:-}\"")"
     [ -n "${key}" ] || continue
-    ids="$(curl -fsS --max-time 25 -H "Authorization: Bearer ${key}" "${base}/models" 2>/dev/null | jq -r '.data[]?.id // empty' 2>/dev/null || true)"
+    raw="$(curl -fsS --max-time 25 -H "Authorization: Bearer ${key}" "${base}/models" 2>/dev/null || true)"
   else
     # keyless local provider: skip silently when it isn't running
-    ids="$(curl -fsS --max-time 5 "${base}/models" 2>/dev/null | jq -r '.data[]?.id // empty' 2>/dev/null || true)"
+    raw="$(curl -fsS --max-time 5 "${base}/models" 2>/dev/null || true)"
   fi
+  # Keep whatever metadata the provider publishes (OpenRouter gives
+  # per-token pricing + context; plain OpenAI-style /models gives none) —
+  # dropping it would leave clients showing every model as free with an
+  # invented context window.
+  ids="$(printf '%s' "${raw}" | jq -r '
+    .data[]? | [
+      .id,
+      (.pricing.prompt // "" | tostring),
+      (.pricing.completion // "" | tostring),
+      ((.context_length // .top_provider.context_length // "") | tostring),
+      ((.top_provider.max_completion_tokens // "") | tostring)
+    ] | @tsv' 2>/dev/null || true)"
   [ -n "${ids}" ] || continue
   count=0
-  while IFS= read -r id; do
+  while IFS=$'\t' read -r id in_cost out_cost ctx max_out; do
     [ -n "${id}" ] || continue
     case "${id}" in *'"'*|*'*'*) continue ;; esac   # skip ids we can't quote safely
     {
@@ -117,6 +129,10 @@ while IFS='|' read -r prefix base keyvar; do
       fi
       echo "    model_info:"
       echo "      mode: chat"
+      case "${in_cost}" in ''|null|0) ;; *) echo "      input_cost_per_token: ${in_cost}" ;; esac
+      case "${out_cost}" in ''|null|0) ;; *) echo "      output_cost_per_token: ${out_cost}" ;; esac
+      case "${ctx}" in ''|null|0) ;; *) echo "      max_input_tokens: ${ctx}" ;; esac
+      case "${max_out}" in ''|null|0) ;; *) echo "      max_output_tokens: ${max_out}" ;; esac
     } >> "${catalog_fragment}"
     count=$((count + 1))
   done <<< "${ids}"
