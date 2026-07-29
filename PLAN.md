@@ -42,7 +42,7 @@ WireGuard); joining the tailnet is one-time owner-interactive, loud-fail
 until done. Done when: `tailscale status` is Running, and an external scan
 of the public IP still shows only port 22.
 
-**C2 — OpenCode harness via the gateway (55-opencode.sh)**
+**C2 — OpenCode harness via the gateway (55-opencode.sh) — shipped**
 T3 Code (pingdotgg/t3code — the web/mobile UI, owner's pick 2026-07-29,
 replacing the earlier bespoke-console idea) drives agent-harness CLIs, not
 model APIs. OpenCode is the supported harness whose provider config takes
@@ -52,16 +52,16 @@ bridge: install OpenCode, register the loopback gateway as its provider
 round-trips through the gateway. pi stays as the direct-CLI agent (not in
 T3 Code's harness list today).
 
-**C3 — T3 Code on the tailnet (60-t3code.sh)**
-Install T3 Code (npm) and run `t3 serve` (:3773) as a systemd unit;
-loopback bind + `tailscale serve` — its remote-access doc names Tailscale
-Serve as a supported path, and hosted pairing never proxies traffic. The
-one-time owner pairing token is owner-interactive (loud instructions until
-paired; `t3 auth` thereafter). Done when the web app answers over the
-tailnet, an agent session driven from it reaches providers only via the
-gateway, and the public IP still exposes only 22. VERIFIED SO FAR: package
-`t3@0.0.30` exists; bare/`--help` invocations are silent headless — serve
-mechanics, bind flags, and state location must be confirmed on the box.
+**C3 — T3 Code on the tailnet (60-t3code.sh) — shipped**
+`t3 serve` as a systemd unit bound to the TAILNET interface (100.x), never
+loopback-only, never 0.0.0.0: reachable by your tailnet devices, closed to
+the internet. Tailscale Serve (HTTPS) requires a one-time tailnet-wide
+admin-console enable, so it stays an optional upgrade the script prints
+rather than a gate on bootstrap. node-pty has no linux prebuilds — that
+single native module is built deliberately (`--ignore-scripts` still
+applies to everything else). Pairing token surfaced from the journal.
+State: `~/.t3` (SQLite). Done: verified reachable from a paired device,
+public IP still exposes only 22.
 
 **S5 — backlog (optional)**
 ufw explicit deny-in, unattended-upgrades, litellm log rotation.
