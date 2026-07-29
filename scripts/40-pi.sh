@@ -73,7 +73,9 @@ fi
 # default model = the round-trip model verified above; user flags override
 # (later flags win). The block is REPLACED on every run so the default
 # tracks whichever provider keys this box currently has.
-sed -i '/^# >>> lavasec-base pi defaults >>>$/,/^# <<< lavasec-base pi defaults <<<$/d' "${HOME}/.bashrc"
+# --follow-symlinks: a dotfiles-managed (symlinked) .bashrc must keep
+# pointing at its target, not be replaced by a regular file
+sed -i --follow-symlinks '/^# >>> lavasec-base pi defaults >>>$/,/^# <<< lavasec-base pi defaults <<<$/d' "${HOME}/.bashrc"
 {
   echo "# >>> lavasec-base pi defaults >>>"
   echo "pi() { command pi --provider lava-gateway --model ${PI_CHECK_MODEL} \"\$@\"; }"
