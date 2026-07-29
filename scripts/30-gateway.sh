@@ -142,17 +142,29 @@ EOF
   # per-token pricing + context; plain OpenAI-style /models gives none) —
   # dropping it would leave clients showing every model as free with an
   # invented context window.
+  # Providers publish metadata in different shapes: OpenRouter uses
+  # per-token strings at the top level, Neuralwatt nests per-MILLION
+  # prices and capabilities under .metadata. Read both; anything missing
+  # is simply omitted (never invented).
   ids="$(printf '%s' "${raw}" | jq -r '
+    def permil(x): if x == null then "" else (x / 1000000 | tostring) end;
     .data[]? | [
       .id,
-      (.pricing.prompt // "" | tostring),
-      (.pricing.completion // "" | tostring),
-      ((.context_length // .top_provider.context_length // "") | tostring),
-      ((.top_provider.max_completion_tokens // "") | tostring),
-      (.pricing.input_cache_read // "" | tostring),
-      (.pricing.input_cache_write // "" | tostring),
-      ((.architecture.input_modalities // [] | index("image")) != null | tostring),
-      ((.supported_parameters // [] | index("reasoning")) != null | tostring)
+      (if .pricing.prompt then (.pricing.prompt | tostring)
+       else permil(.metadata.pricing.input_per_million) end),
+      (if .pricing.completion then (.pricing.completion | tostring)
+       else permil(.metadata.pricing.output_per_million) end),
+      ((.context_length // .top_provider.context_length
+        // .metadata.limits.max_context_length // .max_model_len // "") | tostring),
+      ((.top_provider.max_completion_tokens
+        // .metadata.limits.max_output_tokens // "") | tostring),
+      (if .pricing.input_cache_read then (.pricing.input_cache_read | tostring)
+       else permil(.metadata.pricing.cached_input_per_million) end),
+      ((.pricing.input_cache_write // "") | tostring),
+      (((.architecture.input_modalities // [] | index("image")) != null
+        or (.metadata.capabilities.vision // false)) | tostring),
+      (((.supported_parameters // [] | index("reasoning")) != null
+        or (.metadata.capabilities.reasoning // false)) | tostring)
     ] | join("\u001f")' 2>/dev/null || true)"
   [ -n "${ids}" ] || continue
   count=0
