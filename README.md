@@ -1,13 +1,30 @@
 # lavasec-base
 
-Minimal base for spinning up a LavaSecurity agent VM (Oracle Cloud free tier):
+[![ci](https://github.com/lavasecurity/lavasec-base/actions/workflows/ci.yml/badge.svg)](https://github.com/lavasecurity/lavasec-base/actions/workflows/ci.yml)
+[![security](https://github.com/lavasecurity/lavasec-base/actions/workflows/security.yml/badge.svg)](https://github.com/lavasecurity/lavasec-base/actions/workflows/security.yml)
+![platform](https://img.shields.io/badge/platform-Ubuntu%2024.04%20·%20arm64%20%7C%20x86__64-E95420)
+![free tier](https://img.shields.io/badge/runs%20on-Oracle%20Always%20Free-2f6db3)
+[![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-1. **pi** — coding-agent harness
-2. **git** — auth + sync of lavasecurity repos
-3. **LiteLLM gateway** — one local endpoint (`127.0.0.1:4000`) owning all
-   LLM-provider credentials
+Stages LLM-provider access on a fresh VM — nothing more, nothing less:
+**[pi](https://pi.dev)** as the coding agent, **git** keeping your repos in
+sync, and a **[LiteLLM](https://docs.litellm.ai)** gateway on loopback that
+holds every provider credential. One idempotent bootstrap.
 
-pi talks only to the local gateway; provider keys never leave the VM's env file.
+```
+pi ──▶ http://127.0.0.1:4000/v1 (LiteLLM gateway) ──▶ Anthropic · OpenAI · DeepSeek · OpenRouter · …
+```
+
+Provider keys live in one root-owned file on the VM. pi — and any other local
+tool — only ever talks to the loopback gateway.
+
+## What you get
+
+- **pi wired to the gateway** — one local endpoint; each provider is a gateway route plus a one-line pi model entry (five wired out of the box)
+- **repos that keep themselves fresh** — cloned into `~/src/` with a read-only fine-grained PAT
+- **one place for every key** — add or rotate a provider credential by editing one line and restarting one service
+- **loopback-only by construction** — the gateway binds `127.0.0.1` and bootstrap verifies it; pair with an SSH-only cloud security list and nothing else is reachable
+- **idempotent bootstrap** — re-run it any time; it repairs instead of breaking, and fails loudly with instructions when something needs you
 
 ## Quickstart (on the VM)
 
@@ -21,6 +38,9 @@ sudoedit /etc/lavasec/lavasec.env   # fill in real keys
 ./bootstrap.sh
 ```
 
+The last step of bootstrap proves the whole chain with a real completion:
+`pi → gateway → provider → "LAVA-GATEWAY-OK"`.
+
 ## Layout
 
 | path | what |
@@ -28,9 +48,9 @@ sudoedit /etc/lavasec/lavasec.env   # fill in real keys
 | `bootstrap.sh` | runs `scripts/` in order; idempotent |
 | `scripts/10-system.sh` | base packages (git, python3+venv, node 22) |
 | `scripts/20-git.sh` | git identity, auth, sync repos from `config/repos.txt` |
-| `scripts/30-gateway.sh` | LiteLLM install + systemd service |
-| `scripts/40-pi.sh` | pi install + gateway provider extension |
-| `config/litellm.yaml` | gateway model list (keys via env, never inline) |
+| `scripts/30-gateway.sh` | LiteLLM install + hardened systemd service |
+| `scripts/40-pi.sh` | pi install + gateway provider extension + live round-trip check |
+| `config/litellm.yaml` | gateway model routes (keys via env, never inline) |
 | `config/pi/` | pi extension registering the local gateway |
 | `config/repos.txt` | repos to sync |
 | `systemd/litellm.service` | unit template |
@@ -44,4 +64,15 @@ sudoedit /etc/lavasec/lavasec.env   # fill in real keys
 2. Run `./bootstrap.sh` — it clones into `~/src/`. A missing or invalid
    token fails loudly with setup instructions.
 
-See [PLAN.md](PLAN.md) for slices and open decisions.
+## Adding or rotating a provider key
+
+```bash
+sudoedit /etc/lavasec/lavasec.env
+sudo systemctl restart litellm
+```
+
+Clients never notice — they only hold the local gateway key.
+
+---
+
+See [PLAN.md](PLAN.md) for the slice-by-slice build history and design decisions.
