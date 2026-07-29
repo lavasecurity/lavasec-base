@@ -35,11 +35,20 @@ sudo /opt/lavasec/venv/bin/pip install -q --upgrade pip "litellm[proxy]${LITELLM
 
 # langfuse SDK only when tracing is configured — keeps the venv lean
 # otherwise (the callback in litellm.yaml renders under the same key)
-# all three are required by the callback — installing on the public key
-# alone would give a runtime error on every request
-if sudo sh -c ". ${ENV_FILE} && [ -n \"\${LANGFUSE_PUBLIC_KEY:-}\" ] && [ -n \"\${LANGFUSE_SECRET_KEY:-}\" ] && [ -n \"\${LANGFUSE_HOST:-}\" ]"; then
-  sudo /opt/lavasec/venv/bin/pip install -q langfuse
-  echo "30-gateway: langfuse tracing enabled"
+# Tracing is all-or-nothing: a rendered callback without the SDK (or
+# without every var) makes litellm 500 on EVERY request. This single
+# condition drives both the SDK install and the config render below.
+# shellcheck disable=SC2016  # intentionally unexpanded: evaluated inside
+# the sudo subshell after the env file is sourced
+LANGFUSE_TEST='[ -n "${LANGFUSE_PUBLIC_KEY:-}" ] && [ -n "${LANGFUSE_SECRET_KEY:-}" ] && [ -n "${LANGFUSE_HOST:-}" ]'
+if sudo sh -c ". ${ENV_FILE} && ${LANGFUSE_TEST}"; then
+  # pin <3: litellm's integration reads langfuse.version.__version__,
+  # which the v3+ SDK moved (AttributeError on EVERY traced request).
+  # Override with LANGFUSE_PIN when litellm gains v3 support.
+  sudo /opt/lavasec/venv/bin/pip install -q "${LANGFUSE_PIN:-langfuse<3}"
+  echo "30-gateway: langfuse tracing enabled ($(/opt/lavasec/venv/bin/pip show langfuse 2>/dev/null | awk '/^Version:/{print $2}'))"
+elif sudo sh -c ". ${ENV_FILE} && [ -n \"\${LANGFUSE_PUBLIC_KEY:-}\${LANGFUSE_SECRET_KEY:-}\${LANGFUSE_HOST:-}\" ]"; then
+  echo "30-gateway: langfuse partially configured — tracing OFF (needs LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_HOST)" >&2
 fi
 
 # --- config + unit ---
@@ -47,7 +56,7 @@ fi
 # only when that key is set non-empty in the env file, so this box's live
 # catalog contains exactly its keyed providers.
 rendered="$(mktemp)"
-rendered_content="$(sudo sh -c "set -a && . ${ENV_FILE} && set +a && awk '
+rendered_content="$(sudo sh -c "set -a && . ${ENV_FILE} && if ${LANGFUSE_TEST}; then LANGFUSE_ENABLED=1; fi && set +a && awk '
   /^  # >>> requires / { skip = (ENVIRON[\$4] == \"\"); next }
   /^  # <<< requires / { skip = 0; next }
   !skip { print }

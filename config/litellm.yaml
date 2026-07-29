@@ -108,7 +108,10 @@ litellm_settings:
   # the web UIs, anything added later) is traced, because they all reach
   # providers through this gateway. Activates only when the keys exist in
   # /etc/lavasec/lavasec.env; costs/latency/tokens per model included.
-  # >>> requires LANGFUSE_SECRET_KEY
+  # LANGFUSE_ENABLED is computed by 30-gateway.sh (all three LANGFUSE_*
+  # vars present) — one condition drives both this block and the SDK
+  # install, so they can never disagree
+  # >>> requires LANGFUSE_ENABLED
   success_callback: ["langfuse"]
   failure_callback: ["langfuse"]
-  # <<< requires LANGFUSE_SECRET_KEY
+  # <<< requires LANGFUSE_ENABLED
