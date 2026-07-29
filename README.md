@@ -69,7 +69,8 @@ new shell defaults to the gateway and the verified model — your own
 | `scripts/30-gateway.sh` | LiteLLM install + hardened systemd service |
 | `scripts/40-pi.sh` | pi install + gateway provider extension + live round-trip check |
 | `scripts/50-tailscale.sh` | tailnet access, zero new cloud ingress (one-time device approval) |
-| `scripts/60-console.sh` | lavasec-console web UI on the tailnet (skips if repo unavailable) |
+| `scripts/55-opencode.sh` | OpenCode harness wired to the gateway (T3 Code's agent backend) |
+| `scripts/60-t3code.sh` | T3 Code (`t3 serve`) web/mobile UI on the tailnet |
 | `config/litellm.yaml` | gateway model routes (keys via env, never inline) |
 | `config/pi/` | pi extension registering the local gateway |
 | `config/repos.txt` | repos to sync |

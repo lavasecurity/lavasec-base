@@ -42,23 +42,26 @@ WireGuard); joining the tailnet is one-time owner-interactive, loud-fail
 until done. Done when: `tailscale status` is Running, and an external scan
 of the public IP still shows only port 22.
 
-**C2 — lavasec-console repo (separate repo)**
-T3 app (Next.js + tRPC + Tailwind): streaming chat over the gateway with a
-model picker fed by `/model/info`. Gateway key read server-side from
-`~/.config/lavasec/gateway-key`; no secrets in the repo, nothing
-`NEXT_PUBLIC`. Consumed by base at a pinned tag — base never carries the
-app's source or dependency tree.
+**C2 — OpenCode harness via the gateway (55-opencode.sh)**
+T3 Code (pingdotgg/t3code — the web/mobile UI, owner's pick 2026-07-29,
+replacing the earlier bespoke-console idea) drives agent-harness CLIs, not
+model APIs. OpenCode is the supported harness whose provider config takes
+a custom OpenAI-compatible endpoint, so it is the invariant-preserving
+bridge: install OpenCode, register the loopback gateway as its provider
+(key from `~/.config/lavasec/gateway-key`). Done when an opencode one-shot
+round-trips through the gateway. pi stays as the direct-CLI agent (not in
+T3 Code's harness list today).
 
-**C3 — console staged (60-console.sh)**
-Converge the console at `CONSOLE_DIR` (default `~/lavasec-console`; owned
-by this script exclusively — the console stays out of repos.txt): absent →
-clone + build + install; present → `pull --ff-only` + rebuild; clone
-impossible → SKIP with notice. Systemd unit on loopback :3000,
-`tailscale serve` for tailnet HTTPS (app never leaves loopback). Done
-when: the console answers over the tailnet hostname and the public IP
-still exposes only 22. Runtime state (sessions/assets) lives in
-`~/.local/share/lavasec-console/` — never in any git repo. (Version
-pinning is a later one-line option; C3 tracks the console's main.)
+**C3 — T3 Code on the tailnet (60-t3code.sh)**
+Install T3 Code (npm) and run `t3 serve` (:3773) as a systemd unit;
+loopback bind + `tailscale serve` — its remote-access doc names Tailscale
+Serve as a supported path, and hosted pairing never proxies traffic. The
+one-time owner pairing token is owner-interactive (loud instructions until
+paired; `t3 auth` thereafter). Done when the web app answers over the
+tailnet, an agent session driven from it reaches providers only via the
+gateway, and the public IP still exposes only 22. VERIFIED SO FAR: package
+`t3@0.0.30` exists; bare/`--help` invocations are silent headless — serve
+mechanics, bind flags, and state location must be confirmed on the box.
 
 **S5 — backlog (optional)**
 ufw explicit deny-in, unattended-upgrades, litellm log rotation.
