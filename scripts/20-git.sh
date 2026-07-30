@@ -90,13 +90,32 @@ for line in "${lines[@]}"; do
     # or one deleted upstream after merge. Syncing is a convenience, not a
     # mandate: leave such checkouts untouched and keep bootstrap green
     # rather than failing every other repo (and never touch local work).
+    # CREDENTIAL VALIDATION — once per repo, always against `origin`: the
+    # remote this script manages (set-url just above) and the one the PAT
+    # authenticates. Deliberately separate from the classification below,
+    # because three review rounds found the same bug three ways: a checkout
+    # pinned to a tag, one tracking a differently named branch, and one
+    # tracking a DIFFERENT REMOTE could each skip or even pull successfully
+    # while the managed credential was dead — and bootstrap still printed OK.
+    # A skip must never double as credential validation, and neither must a
+    # pull that never contacted origin.
+    origin_rc=0
+    git -C "${dest}" ls-remote --exit-code --heads origin >/dev/null 2>&1 || origin_rc=$?
+    case "${origin_rc}" in
+      # 0 = reachable with heads; 2 = reachable, no heads (empty upstream —
+      # the pull path below reports that case properly). Both prove the
+      # credential works, which is all this check establishes.
+      0|2) ;;
+      *)   failed+=("${repo}: cannot reach origin (ls-remote rc=${origin_rc}) — credential or network problem")
+           continue ;;
+    esac
+
     branch="$(git -C "${dest}" branch --show-current 2>/dev/null || true)"
     branch_gone=""
     if [ -n "${branch}" ]; then
-      # --exit-code: 0 = branch exists, 2 = no matching ref, anything else
-      # = transport/auth failure. Only 2 means "deleted upstream"; treating
-      # every non-zero as that would hide a broken token behind a friendly
-      # "left alone" for every repo.
+      # CLASSIFICATION ONLY (origin is already proven reachable above):
+      # is the branch this checkout tracks still present upstream?
+      # --exit-code: 0 = present, 2 = no matching ref.
       # `|| ls_rc=$?` — a bare failing command would abort under set -e
       # before we could classify its exit code
       # Probe the CONFIGURED upstream, not a same-name guess. A branch may
@@ -134,24 +153,11 @@ for line in "${lines[@]}"; do
     # tag. `pull --ff-only` can NEVER succeed there ("You are not currently on
     # a branch"), so attempting it only turns a deliberate pin into a bootstrap
     # failure. Same reasoning as the two skips below: a clone the owner has
-    # positioned on purpose is left where it is.
-    #
-    # But the remote is still PROBED before skipping. `branch` is empty here, so
-    # the ls_rc classifier above never ran — and with every repo pinned to a tag
-    # (which the README now recommends) NO network operation would happen at
-    # all, letting an expired PAT report "20-git: OK". That is the same
-    # absent-vs-failed conflation already fixed for untracked branches; a skip
-    # must never double as credential validation.
+    # positioned on purpose is left where it is — and safely, because origin
+    # was already validated above, so this skip cannot mask a dead credential.
     if [ -z "${branch}" ]; then
-      det_rc=0
-      git -C "${dest}" ls-remote --exit-code --heads origin >/dev/null 2>&1 || det_rc=$?
       pinned_at="$(git -C "${dest}" describe --tags --always 2>/dev/null || echo '?')"
-      case "${det_rc}" in
-        # 0 = reachable with heads; 2 = reachable but no heads (empty upstream).
-        # Both prove the credential and transport work, which is all this needs.
-        0|2) echo "20-git: ${repo} on a detached HEAD (${pinned_at}) — left alone" ;;
-        *)   failed+=("${repo}: pinned at ${pinned_at} but the remote probe failed (ls-remote rc=${det_rc}) — credential or network problem") ;;
-      esac
+      echo "20-git: ${repo} on a detached HEAD (${pinned_at}) — left alone"
     elif [ -n "${branch}" ] && [ -z "${branch_gone}" ] && [ "${ls_rc}" = "0" ] \
         && ! git -C "${dest}" rev-parse --abbrev-ref "@{upstream}" >/dev/null 2>&1; then
       echo "20-git: ${repo} on '${branch}' (no tracking upstream) — left alone"
