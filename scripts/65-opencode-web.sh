@@ -150,7 +150,13 @@ echo "65-opencode-web: sign in as 'lavasec'; password: cat ${WEB_PW_FILE}"
 # support + MagicDNS in the admin console (one-time, tailnet-wide).
 # NO-MAGIDNS FALLBACK: ssh -L ${PORT}:${ts_ip}:${PORT} -N ${USER}@${ts_ip},
 # then open http://localhost:${PORT} (localhost IS a secure context over HTTP).
-if ! sudo tailscale serve status 2>&1 | grep -q "${PORT}"; then
+# Guard on an HTTPS LISTENER serving our backend, not the backend port alone:
+# a legacy --http serve (old hint) also lists ${PORT} as its proxy target,
+# which would suppress this fix and leave clipboard broken. Require both
+# https:// in status AND our port (see 60-t3code.sh for the full reasoning).
+serve_status="$(sudo tailscale serve status 2>&1 || true)"
+if ! printf '%s' "${serve_status}" | grep -q 'https://' \
+  || ! printf '%s' "${serve_status}" | grep -q "${PORT}"; then
   echo "65-opencode-web: copy buttons need HTTPS (plain HTTP on a tailnet IP is not a secure context):"
   echo "                  sudo tailscale serve --bg --https=8443 http://${ts_ip}:${PORT}   # needs HTTPS cert support + MagicDNS (admin console)"
   echo "                  no-DNS fallback: ssh -L ${PORT}:${ts_ip}:${PORT} -N ${USER}@${ts_ip}, then http://localhost:${PORT}"

@@ -194,9 +194,14 @@ fi
 #
 # Note: the previous hint omitted --https, so it served plain HTTP and did
 # NOT fix clipboard. --https=<port> is what actually terminates TLS here.
-# print unless Serve is already configured for our port — covers
-# admin-disabled, unconfigured, and status-error cases alike
-if ! sudo tailscale serve status 2>&1 | grep -q "3773"; then
+# Guard on an HTTPS LISTENER serving our backend, not on the backend port
+# alone: a legacy --http serve (old hint, no --https) also lists 3773 as its
+# proxy target, which would suppress this fix and leave clipboard broken on
+# exactly the boxes most likely to need it. An HTTPS serve shows https:// in
+# status; a plain-http serve shows only http://, so require both.
+serve_status="$(sudo tailscale serve status 2>&1 || true)"
+if ! printf '%s' "${serve_status}" | grep -q 'https://' \
+  || ! printf '%s' "${serve_status}" | grep -q '3773'; then
   echo "60-t3code: copy buttons need HTTPS (plain HTTP on a tailnet IP is not a secure context — navigator.clipboard is blocked):"
   echo "           sudo tailscale serve --bg --https=443 http://${ts_ip}:3773   # needs HTTPS cert support + MagicDNS (admin console)"
   echo "           no-DNS fallback: ssh -L 3773:${ts_ip}:3773 -N ${USER}@${ts_ip}, then open http://localhost:3773"
