@@ -51,11 +51,20 @@ litellm_settings:
   # providers through this gateway. Activates only when the keys exist in
   # /etc/lavasec/lavasec.env; costs/latency/tokens per model included.
   # LANGFUSE_ENABLED is computed by 30-gateway.sh (all three LANGFUSE_*
-  # vars present) — one condition drives both this block and the SDK
+  # vars present) — one condition drives both this block and the dep
   # install, so they can never disagree
+  #
+  # langfuse_otel, NOT langfuse: Langfuse's observation-level evaluators
+  # require v4 (OTEL-compatible) ingestion, and langfuse_otel is the only
+  # callback that emits it — the legacy "langfuse" callback is SDK v2 on
+  # every published litellm build. 30-gateway.sh refuses to install a
+  # config using this callback on a build that cannot send the v4
+  # ingestion header, so the two can never silently disagree either.
+  # Revert path is this pair back to ["langfuse"]; the SDK is kept
+  # installed for exactly that (see 30-gateway.sh).
   # >>> requires LANGFUSE_ENABLED
-  success_callback: ["langfuse"]
-  failure_callback: ["langfuse"]
+  success_callback: ["langfuse_otel"]
+  failure_callback: ["langfuse_otel"]
   # Tag every trace with the model_name the CALLER asked for.
   #
   # Langfuse's "model" field is the dispatch string, not the alias: litellm's
@@ -96,8 +105,21 @@ litellm_settings:
   # e.g. x-claude-code-session-id works. Session-id values must match
   # ^[a-zA-Z0-9_-]{8,}$ (:47) — under 8 chars is silently rejected.
   #
-  # Because x-litellm-tags sets tags directly, the agent/flow/module entries
-  # below are only needed if a caller sends those as metadata KEYS. They are
-  # harmless when absent (a key not in metadata simply produces no tag).
-  langfuse_default_tags: ["model_group", "agent", "flow", "module"]
+  # Because x-litellm-tags sets tags directly, the agent/flow/module dimensions
+  # survive the OTEL switch: that header is handled in the proxy pre-call layer
+  # and lands in metadata["tags"], which langfuse_otel maps to
+  # langfuse.trace.tags. Everything above about session grouping holds too —
+  # session_id is a direct attribute mapping under OTEL, not a popped key.
+  #
+  # langfuse_default_tags is DELIBERATELY ABSENT, not forgotten. It is
+  # implemented only in litellm's legacy langfuse handler, never in
+  # langfuse_otel, so under this callback it is silently inert. Leaving it set
+  # would read as working configuration while doing nothing.
+  #
+  # ACCEPTED LOSS: model_group. It has no header equivalent, so the tag that
+  # separated per-vendor spend (the "openai/glm-5.2 vs neuralwatt/glm-5.2"
+  # problem described above) is gone until litellm PR #34025 lands, which
+  # surfaces model_group as the observation model. Streaming requests are
+  # additionally affected by litellm #25628 (upstream model id logged instead
+  # of the proxy alias), so model attribution is degraded on both axes for now.
   # <<< requires LANGFUSE_ENABLED

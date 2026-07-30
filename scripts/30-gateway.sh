@@ -33,11 +33,11 @@ if [ ! -x /opt/lavasec/venv/bin/pip ]; then
 fi
 sudo /opt/lavasec/venv/bin/pip install -q --upgrade pip "litellm[proxy]${LITELLM_VERSION:+==${LITELLM_VERSION}}"
 
-# langfuse SDK only when tracing is configured — keeps the venv lean
+# tracing deps only when tracing is configured — keeps the venv lean
 # otherwise (the callback in litellm.yaml renders under the same key)
-# Tracing is all-or-nothing: a rendered callback without the SDK (or
+# Tracing is all-or-nothing: a rendered callback without its deps (or
 # without every var) makes litellm 500 on EVERY request. This single
-# condition drives both the SDK install and the config render below.
+# condition drives both the dep install and the config render below.
 # shellcheck disable=SC2016  # intentionally unexpanded: evaluated inside
 # the sudo subshell after the env file is sourced
 LANGFUSE_TEST='[ -n "${LANGFUSE_PUBLIC_KEY:-}" ] && [ -n "${LANGFUSE_SECRET_KEY:-}" ] && [ -n "${LANGFUSE_HOST:-}" ]'
@@ -62,11 +62,57 @@ EOF
     } >&2
     exit 1
   fi
-  # pin <3: litellm's integration reads langfuse.version.__version__,
-  # which the v3+ SDK moved (AttributeError on EVERY traced request).
-  # Override with LANGFUSE_PIN when litellm gains v3 support.
+  # OTEL stack for the langfuse_otel callback. litellm[proxy] does NOT
+  # carry it: these live in litellm's separate "proxy-runtime" extra,
+  # which we don't install wholesale (it also drags in vertex, ddtrace,
+  # sentry, mangum — against the lean-venv rule above). Versions mirror
+  # that extra exactly so the opentelemetry packages move in lockstep
+  # with what litellm actually tests against.
+  sudo /opt/lavasec/venv/bin/pip install -q \
+    "opentelemetry-api==1.28.0" \
+    "opentelemetry-sdk==1.28.0" \
+    "opentelemetry-exporter-otlp==1.28.0" \
+    "opentelemetry-instrumentation-fastapi==0.49b0"
+
+  # The langfuse SDK is CUTOVER SCAFFOLDING, not a dependency of tracing.
+  # langfuse_otel speaks OTLP directly and imports no langfuse package at
+  # all; only the legacy "langfuse" callback uses the SDK, and it imports
+  # it lazily (inside functions, not at module load). It is kept solely so
+  # reverting litellm.yaml to success_callback: ["langfuse"] works without
+  # a pip install under incident pressure — a missing SDK would not fail
+  # at startup, it would fail on every traced request.
+  #
+  # pin <3 because litellm itself declares langfuse>=2.59.7,<3.0, and the
+  # legacy handler reads langfuse.version.__version__, which the v3+ SDK
+  # moved (AttributeError on EVERY traced request).
+  #
+  # FOLLOW-UP: drop this install once the OTEL cutover is confirmed
+  # stable. Doing so also removes a latent break — litellm PR #33391
+  # raises its own requirement to langfuse>=4.7,<5, at which point this
+  # line would silently downgrade the SDK and break the install.
   sudo /opt/lavasec/venv/bin/pip install -q "${LANGFUSE_PIN:-langfuse<3}"
-  echo "30-gateway: langfuse tracing enabled ($(/opt/lavasec/venv/bin/pip show langfuse 2>/dev/null | awk '/^Version:/{print $2}'), credentials verified)"
+
+  # Refuse rather than degrade: langfuse_otel only reaches Langfuse's v4
+  # ingestion path when it sends x-langfuse-ingestion-version: 4, and that
+  # header is absent from the entire 1.94.x line (present from 1.95.0 —
+  # earliest RC-grade build 1.95.0rc1). Without it spans still arrive and
+  # dashboards still look healthy, but they ingest the OLD way and
+  # observation-level evaluators silently never run. Probe the capability
+  # rather than parse a version string: this survives version-scheme
+  # changes and litellm PR #33391 reshuffling the module.
+  if ! sudo /opt/lavasec/venv/bin/python -c 'import sys
+from litellm.integrations.langfuse.langfuse_otel import LANGFUSE_INGESTION_VERSION as v
+sys.exit(0 if v == "4" else 1)' 2>/dev/null; then
+    {
+      echo "30-gateway: installed litellm cannot emit Langfuse v4 ingestion"
+      echo "  litellm.yaml routes tracing through the langfuse_otel callback, but this"
+      echo "  build does not send x-langfuse-ingestion-version: 4 — traces would ingest"
+      echo "  via the old path and observation-level evaluators would never run."
+      echo "  Install a 1.95.0+ build, e.g. LITELLM_VERSION=1.95.0rc1, and re-run."
+    } >&2
+    exit 1
+  fi
+  echo "30-gateway: langfuse tracing enabled via langfuse_otel (v4 ingestion verified, credentials verified)"
 elif sudo sh -c ". ${ENV_FILE} && [ -n \"\${LANGFUSE_PUBLIC_KEY:-}\${LANGFUSE_SECRET_KEY:-}\${LANGFUSE_HOST:-}\" ]"; then
   echo "30-gateway: langfuse partially configured — tracing OFF (needs LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_HOST)" >&2
 fi
