@@ -19,17 +19,29 @@ if [ ! -s "${KEY_FILE}" ]; then
   exit 1
 fi
 
+# Run root with ROOT's own home AND config dir. Both halves are needed:
+#   -H            Ubuntu's sudo preserves HOME, so root would write to the
+#                 invoking user's home.
+#   -u XDG_*      sudo does NOT strip XDG_CONFIG_HOME, and any environment that
+#                 exports it (GitHub runners set XDG_CONFIG_HOME=$HOME/.config,
+#                 as do many desktops) overrides HOME for tools that honour
+#                 XDG -- opencode does.
+# Measured on a runner: opencode's postinstall calls verifyBinary(), which
+# EXECUTES the opencode binary as root; the binary then creates its config dir
+# from XDG_CONFIG_HOME, ignoring HOME. With -H alone that produced a root-owned
+# /home/runner/.config/opencode and nothing under /root; with XDG_CONFIG_HOME
+# unset it created /root/.config/opencode and left the user's home clean. A
+# root-owned config dir then fails the unprivileged write further down, so a
+# fresh box could never finish this slice.
+sudo_root() { sudo -H env -u XDG_CONFIG_HOME -u XDG_CACHE_HOME \
+  -u XDG_DATA_HOME -u XDG_STATE_HOME "$@"; }
+
 # npm package is opencode-ai; it NEEDS its own postinstall (fetches the
 # platform binary). Keep --ignore-scripts so no transitive package runs
 # code, then run THIS package's postinstall deliberately.
 if ! opencode --version >/dev/null 2>&1; then
-  # sudo -H, not bare sudo: Ubuntu's sudo PRESERVES HOME, so this postinstall
-  # ran as root against THIS user's home and left a root-owned
-  # ~/.config/opencode -- which then failed the config write below on every
-  # fresh box (a long-lived box only escapes it if the dir predates the
-  # postinstall). -H sends root's writes to /root.
-  sudo -H npm install -g --ignore-scripts opencode-ai >/dev/null
-  (cd "$(npm root -g)/opencode-ai" && sudo -H node postinstall.mjs >/dev/null)
+  sudo_root npm install -g --ignore-scripts opencode-ai >/dev/null
+  (cd "$(npm root -g)/opencode-ai" && sudo_root node postinstall.mjs >/dev/null)
 fi
 echo "55-opencode: opencode $(opencode --version 2>/dev/null | head -1)"
 

@@ -11,10 +11,14 @@ ENV_FILE=/etc/lavasec/lavasec.env
 KEY_FILE="${HOME}/.config/lavasec/gateway-key"
 EXT_DIR="${HOME}/.pi/agent/extensions"
 
-# sudo -H, not bare sudo: Ubuntu's sudo PRESERVES HOME, so root's npm cache
-# and any config a package writes land root-owned in THIS user's home and
-# break later unprivileged writes there. -H points root at /root instead.
-sudo -H npm install -g --ignore-scripts @earendil-works/pi-coding-agent >/dev/null
+# Root with ROOT's own home and config dir. -H because Ubuntu's sudo preserves
+# HOME; -u XDG_* because sudo does NOT strip XDG_CONFIG_HOME, and where it is
+# exported (GitHub runners, many desktops) it overrides HOME for any tool that
+# honours XDG. Either gap leaves root-owned dirs in this user's home and breaks
+# later unprivileged writes there -- see the measured case in 55-opencode.sh.
+sudo_root() { sudo -H env -u XDG_CONFIG_HOME -u XDG_CACHE_HOME \
+  -u XDG_DATA_HOME -u XDG_STATE_HOME "$@"; }
+sudo_root npm install -g --ignore-scripts @earendil-works/pi-coding-agent >/dev/null
 
 # client key: the master key is the gateway's CLIENT credential too; pi runs
 # as this user, so it gets a user-domain 600 copy (root env stays root-only).
