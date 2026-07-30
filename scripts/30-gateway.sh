@@ -107,18 +107,42 @@ EOF
   # header is absent from the entire 1.94.x line (present from 1.95.0 —
   # earliest RC-grade build 1.95.0rc1). Without it spans still arrive and
   # dashboards still look healthy, but they ingest the OLD way and
-  # observation-level evaluators silently never run. Probe the capability
-  # rather than parse a version string: this survives version-scheme
-  # changes and litellm PR #33391 reshuffling the module.
-  if ! sudo /opt/lavasec/venv/bin/python -c 'import sys
-from litellm.integrations.langfuse.langfuse_otel import LANGFUSE_INGESTION_VERSION as v
-sys.exit(0 if v == "4" else 1)' 2>/dev/null; then
+  # observation-level evaluators silently never run.
+  #
+  # Probing the constant beats parsing "1.95.0rc1" — version strings are a
+  # proxy for the capability, this is the capability. It does NOT survive
+  # the module being moved: litellm PR #33391 touches this file, and if it
+  # relocates the constant the import breaks. That is why the two failure
+  # modes are distinguished below (exit 2 = cannot probe, exit 1 = probed
+  # and too old) and the interpreter's own error is surfaced. Failing
+  # loudly on a moved symbol is the safe direction; failing loudly while
+  # blaming the wrong cause is not.
+  probe_err=""
+  probe_rc=0
+  probe_err="$(sudo /opt/lavasec/venv/bin/python -c 'import sys
+try:
+    from litellm.integrations.langfuse.langfuse_otel import LANGFUSE_INGESTION_VERSION as v
+except Exception as exc:  # ImportError, but also a broken venv or moved symbol
+    print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
+    sys.exit(2)
+if v != "4":
+    print(f"LANGFUSE_INGESTION_VERSION is {v!r}, expected \"4\"", file=sys.stderr)
+    sys.exit(1)' 2>&1)" || probe_rc=$?
+  if [ "${probe_rc}" -ne 0 ]; then
     {
-      echo "30-gateway: installed litellm cannot emit Langfuse v4 ingestion"
-      echo "  litellm.yaml routes tracing through the langfuse_otel callback, but this"
-      echo "  build does not send x-langfuse-ingestion-version: 4 — traces would ingest"
-      echo "  via the old path and observation-level evaluators would never run."
-      echo "  Install a 1.95.0+ build, e.g. LITELLM_VERSION=1.95.0rc1, and re-run."
+      if [ "${probe_rc}" -eq 2 ]; then
+        echo "30-gateway: cannot verify Langfuse v4 ingestion support"
+        echo "  The probe could not read LANGFUSE_INGESTION_VERSION at all. Either the"
+        echo "  venv is broken, or litellm moved the symbol (PR #33391 touches this"
+        echo "  file) — in which case this guard needs its import path updated."
+      else
+        echo "30-gateway: installed litellm cannot emit Langfuse v4 ingestion"
+        echo "  litellm.yaml routes tracing through the langfuse_otel callback, but this"
+        echo "  build does not send x-langfuse-ingestion-version: 4 — traces would ingest"
+        echo "  via the old path and observation-level evaluators would never run."
+        echo "  Install a 1.95.0+ build, e.g. LITELLM_VERSION=1.95.0rc1, and re-run."
+      fi
+      echo "  python: ${probe_err}"
     } >&2
     exit 1
   fi
