@@ -90,17 +90,53 @@ for line in "${lines[@]}"; do
     # or one deleted upstream after merge. Syncing is a convenience, not a
     # mandate: leave such checkouts untouched and keep bootstrap green
     # rather than failing every other repo (and never touch local work).
+    # CREDENTIAL VALIDATION — once per repo, always against `origin`: the
+    # remote this script manages (set-url just above) and the one the PAT
+    # authenticates. Deliberately separate from the classification below,
+    # because three review rounds found the same bug three ways: a checkout
+    # pinned to a tag, one tracking a differently named branch, and one
+    # tracking a DIFFERENT REMOTE could each skip or even pull successfully
+    # while the managed credential was dead — and bootstrap still printed OK.
+    # A skip must never double as credential validation, and neither must a
+    # pull that never contacted origin.
+    origin_rc=0
+    git -C "${dest}" ls-remote --exit-code --heads origin >/dev/null 2>&1 || origin_rc=$?
+    case "${origin_rc}" in
+      # 0 = reachable with heads; 2 = reachable, no heads (empty upstream —
+      # the pull path below reports that case properly). Both prove the
+      # credential works, which is all this check establishes.
+      0|2) ;;
+      *)   failed+=("${repo}: cannot reach origin (ls-remote rc=${origin_rc}) — credential or network problem")
+           continue ;;
+    esac
+
     branch="$(git -C "${dest}" branch --show-current 2>/dev/null || true)"
     branch_gone=""
     if [ -n "${branch}" ]; then
-      # --exit-code: 0 = branch exists, 2 = no matching ref, anything else
-      # = transport/auth failure. Only 2 means "deleted upstream"; treating
-      # every non-zero as that would hide a broken token behind a friendly
-      # "left alone" for every repo.
+      # CLASSIFICATION ONLY (origin is already proven reachable above):
+      # is the branch this checkout tracks still present upstream?
+      # --exit-code: 0 = present, 2 = no matching ref.
       # `|| ls_rc=$?` — a bare failing command would abort under set -e
       # before we could classify its exit code
+      # Probe the CONFIGURED upstream, not a same-name guess. A branch may
+      # track a differently named one (local-name -> origin/main) or a remote
+      # other than origin; probing refs/heads/<branch> then returns 2 and the
+      # branch_gone path below declares it deleted, so a perfectly working
+      # clone silently stops syncing forever.
+      # branch.<name>.merge is already a full ref ("refs/heads/main") and
+      # branch.<name>.remote names the remote — git's own configuration is the
+      # authority here, so no parsing of "origin/main" is needed (branch names
+      # may themselves contain slashes).
+      up_remote="$(git -C "${dest}" config --get "branch.${branch}.remote" 2>/dev/null || true)"
+      up_merge="$(git -C "${dest}" config --get "branch.${branch}.merge" 2>/dev/null || true)"
       ls_rc=0
-      git -C "${dest}" ls-remote --exit-code origin "refs/heads/${branch}" >/dev/null 2>&1 || ls_rc=$?
+      if [ -n "${up_remote}" ] && [ -n "${up_merge}" ]; then
+        git -C "${dest}" ls-remote --exit-code "${up_remote}" "${up_merge}" >/dev/null 2>&1 || ls_rc=$?
+      else
+        # no tracking config at all — the same-name probe is the best available
+        # signal, and the untracked-branch skip below handles the rest
+        git -C "${dest}" ls-remote --exit-code origin "refs/heads/${branch}" >/dev/null 2>&1 || ls_rc=$?
+      fi
       case "${ls_rc}" in
         0) ;;
         2) branch_gone=1 ;;
@@ -113,7 +149,16 @@ for line in "${lines[@]}"; do
     # ls_rc = 0 required: without it, a broken token (ls-remote fails) on an
     # untracked branch would report "left alone" and let bootstrap exit 0
     # with unusable credentials
-    if [ -n "${branch}" ] && [ -z "${branch_gone}" ] && [ "${ls_rc}" = "0" ] \
+    # A detached HEAD is the documented way to pin a checkout to a verified
+    # tag. `pull --ff-only` can NEVER succeed there ("You are not currently on
+    # a branch"), so attempting it only turns a deliberate pin into a bootstrap
+    # failure. Same reasoning as the two skips below: a clone the owner has
+    # positioned on purpose is left where it is — and safely, because origin
+    # was already validated above, so this skip cannot mask a dead credential.
+    if [ -z "${branch}" ]; then
+      pinned_at="$(git -C "${dest}" describe --tags --always 2>/dev/null || echo '?')"
+      echo "20-git: ${repo} on a detached HEAD (${pinned_at}) — left alone"
+    elif [ -n "${branch}" ] && [ -z "${branch_gone}" ] && [ "${ls_rc}" = "0" ] \
         && ! git -C "${dest}" rev-parse --abbrev-ref "@{upstream}" >/dev/null 2>&1; then
       echo "20-git: ${repo} on '${branch}' (no tracking upstream) — left alone"
     elif [ -n "${branch_gone}" ]; then
