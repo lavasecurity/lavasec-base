@@ -10,14 +10,29 @@ cd "$(dirname "$0")" || exit 1
 # rather than a VERSION file, which would silently drift; `--dirty` flags local
 # edits, and `--always` still yields a short SHA when no tag is reachable.
 # Falls back to "unknown" for a tarball download with no .git.
-version="$(git describe --tags --always --dirty 2>/dev/null || echo unknown)"
-# `--dirty` only accounts for TRACKED modifications, but the loop below globs
-# the filesystem — so an untracked scripts/NN-*.sh would be executed under a
-# clean-looking tag, which is precisely the provenance claim this line makes.
-# --exclude-standard keeps gitignored, expected files (config/repos.local.txt)
-# from raising a false alarm.
-if [ -n "$(git ls-files --others --exclude-standard -- scripts/ 2>/dev/null)" ]; then
-  version="${version}+untracked-scripts"
+#
+# The `.git` test is not redundant: git discovery walks UP, so a tarball
+# unpacked anywhere inside an unrelated worktree would otherwise describe that
+# enclosing repository and print its tag as if it were ours. Requiring a .git
+# right here (a directory for a clone, a file for a worktree/submodule) keeps
+# the claim about THIS checkout.
+if [ -e .git ]; then
+  version="$(git describe --tags --always --dirty 2>/dev/null || echo unknown)"
+  # `--dirty` covers TRACKED modifications only, while the loop below globs the
+  # filesystem. Test exactly what will execute: ask git whether each numbered
+  # script the glob matches is tracked. Deliberately NOT
+  # `ls-files --others --exclude-standard` — that hides a script ignored via
+  # .gitignore, .git/info/exclude, or a global excludes file, which the loop
+  # would still happily run under a clean-looking tag.
+  for s in scripts/[0-9]*.sh; do
+    [ -e "${s}" ] || continue
+    if ! git ls-files --error-unmatch "${s}" >/dev/null 2>&1; then
+      version="${version}+untracked-scripts"
+      break
+    fi
+  done
+else
+  version="unknown"
 fi
 echo "lavasec-base ${version}"
 
