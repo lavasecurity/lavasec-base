@@ -113,7 +113,14 @@ for line in "${lines[@]}"; do
     # ls_rc = 0 required: without it, a broken token (ls-remote fails) on an
     # untracked branch would report "left alone" and let bootstrap exit 0
     # with unusable credentials
-    if [ -n "${branch}" ] && [ -z "${branch_gone}" ] && [ "${ls_rc}" = "0" ] \
+    # A detached HEAD is the documented way to pin a checkout to a verified
+    # tag. `pull --ff-only` can NEVER succeed there ("You are not currently on
+    # a branch"), so attempting it only turns a deliberate pin into a bootstrap
+    # failure. Same reasoning as the two skips below: a clone the owner has
+    # positioned on purpose is left where it is.
+    if [ -z "${branch}" ]; then
+      echo "20-git: ${repo} on a detached HEAD ($(git -C "${dest}" describe --tags --always 2>/dev/null || echo '?')) — left alone"
+    elif [ -n "${branch}" ] && [ -z "${branch_gone}" ] && [ "${ls_rc}" = "0" ] \
         && ! git -C "${dest}" rev-parse --abbrev-ref "@{upstream}" >/dev/null 2>&1; then
       echo "20-git: ${repo} on '${branch}' (no tracking upstream) — left alone"
     elif [ -n "${branch_gone}" ]; then

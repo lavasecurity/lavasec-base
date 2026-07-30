@@ -88,9 +88,14 @@ box**, which is a stronger claim than CI-green — CI cannot reach the tailnet
 slices or the Langfuse path. For a known-good starting point:
 
 ```bash
-git tag -l                 # list verified states
-git checkout v0.1.0        # pin to one
+git tag -l                          # list verified states
+git switch -c pinned-v0.1.0 v0.1.0  # pin to one
 ```
+
+A local branch rather than a bare `git checkout v0.1.0`: this repo is itself in
+`config/repos.txt`, so `20-git.sh` syncs it, and a branch with no upstream is
+left alone by design. (A detached HEAD is left alone too — `pull --ff-only`
+cannot fast-forward one — but a named branch says *why* the checkout is pinned.)
 
 `bootstrap.sh` prints the checkout it is running from as its first line
 (`git describe`, with `-dirty` when locally edited), so pasted output always
