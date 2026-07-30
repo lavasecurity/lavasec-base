@@ -86,7 +86,39 @@ for line in "${lines[@]}"; do
 
   if [ -d "${dest}/.git" ]; then
     git -C "${dest}" remote set-url origin "${url}"  # heals pre-HTTPS remotes
-    if out=$(git -C "${dest}" pull --ff-only 2>&1 < /dev/null); then
+    # A clone can legitimately sit on a branch this box's agents created,
+    # or one deleted upstream after merge. Syncing is a convenience, not a
+    # mandate: leave such checkouts untouched and keep bootstrap green
+    # rather than failing every other repo (and never touch local work).
+    branch="$(git -C "${dest}" branch --show-current 2>/dev/null || true)"
+    branch_gone=""
+    if [ -n "${branch}" ]; then
+      # --exit-code: 0 = branch exists, 2 = no matching ref, anything else
+      # = transport/auth failure. Only 2 means "deleted upstream"; treating
+      # every non-zero as that would hide a broken token behind a friendly
+      # "left alone" for every repo.
+      # `|| ls_rc=$?` — a bare failing command would abort under set -e
+      # before we could classify its exit code
+      ls_rc=0
+      git -C "${dest}" ls-remote --exit-code origin "refs/heads/${branch}" >/dev/null 2>&1 || ls_rc=$?
+      case "${ls_rc}" in
+        0) ;;
+        2) branch_gone=1 ;;
+        *) ;;   # transport failure: fall through to the pull, which reports it
+      esac
+    fi
+    # A branch pushed without -u has a remote ref but NO tracking config;
+    # `pull --ff-only` then fails with "no tracking information" and would
+    # fail the whole bootstrap — exactly what this skip exists to prevent.
+    # ls_rc = 0 required: without it, a broken token (ls-remote fails) on an
+    # untracked branch would report "left alone" and let bootstrap exit 0
+    # with unusable credentials
+    if [ -n "${branch}" ] && [ -z "${branch_gone}" ] && [ "${ls_rc}" = "0" ] \
+        && ! git -C "${dest}" rev-parse --abbrev-ref "@{upstream}" >/dev/null 2>&1; then
+      echo "20-git: ${repo} on '${branch}' (no tracking upstream) — left alone"
+    elif [ -n "${branch_gone}" ]; then
+      echo "20-git: ${repo} on '${branch}' (no matching upstream branch) — left alone"
+    elif out=$(git -C "${dest}" pull --ff-only 2>&1 < /dev/null); then
       echo "20-git: pulled ${repo}"
       synced=$((synced + 1))
     elif heads=$(git -C "${dest}" ls-remote --heads origin 2>/dev/null < /dev/null) \
