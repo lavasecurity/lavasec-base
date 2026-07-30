@@ -1,0 +1,261 @@
+name: e2e
+
+# Runs the bootstrap chain for real on a throwaway runner.
+#
+# Why this exists: `ci` is entirely static (bash -n, shellcheck, greps). It
+# cannot catch runtime behaviour, and shellcheck --enable=all does NOT flag
+# the `printf | grep -q` + pipefail false negative fixed in #15 -- that bug
+# reached main through a green build and only surfaced when the live catalog
+# grew past the 64 KiB pipe buffer.
+#
+# Coverage: every numbered slice EXCEPT the three that require a live tailnet
+# (50-tailscale, 60-t3code, 65-opencode-web) -- a hosted runner has no tailnet
+# and an auth key in CI would be a secret fork PRs can't have anyway. The run
+# list is derived, so a NEW slice is included automatically and fails loudly
+# rather than being silently skipped.
+#
+# No real provider credentials: a mock OpenAI-compatible provider plugs into
+# the OLLAMA_BASE override 30-gateway.sh already supports, so nothing in the
+# production path is bent for testing.
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  chain:
+    # Pinned, not -latest: this should track the Oracle box (Ubuntu 24.04),
+    # not drift with GitHub's image alias.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      MOCK_PORT: "8899"
+      # Load-bearing, not padding: the pipefail/SIGPIPE regression class only
+      # reproduces above the 64 KiB pipe buffer. The assertion step below
+      # fails if this stops being enough, so the guard can't rot quietly.
+      MOCK_MODEL_COUNT: "800"
+      CI_DIR: /tmp/lavasec-ci
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: mint throwaway credentials
+        run: |
+          set -euo pipefail
+          mkdir -p "${CI_DIR}"
+          chmod 700 "${CI_DIR}"
+          umask 077
+          # Generated per run, never committed. The gateway preflight requires
+          # an sk- prefixed master key.
+          printf 'sk-ci-%s' "$(openssl rand -hex 16)" > "${CI_DIR}/master.key"
+          printf 'ci-mock-%s' "$(openssl rand -hex 16)" > "${CI_DIR}/mock.key"
+          # Pattern file for the argv tripwire below: keeping the values in a
+          # file means `grep -f` never puts them in its own command line.
+          { cat "${CI_DIR}/master.key"; echo; cat "${CI_DIR}/mock.key"; echo; } \
+            > "${CI_DIR}/secrets.grep"
+
+      - name: start mock provider
+        run: |
+          set -euo pipefail
+          MOCK_API_KEY="$(cat "${CI_DIR}/mock.key")" \
+          MOCK_PORT="${MOCK_PORT}" \
+          MOCK_MODEL_COUNT="${MOCK_MODEL_COUNT}" \
+            nohup python3 ci/mock-provider.py > "${CI_DIR}/mock.log" 2>&1 &
+          echo $! > "${CI_DIR}/mock.pid"
+          for _ in $(seq 1 30); do
+            if curl -fsS --max-time 2 "http://127.0.0.1:${MOCK_PORT}/health" >/dev/null 2>&1; then
+              ok=1; break
+            fi
+            sleep 1
+          done
+          if [ -z "${ok:-}" ]; then
+            echo "mock provider did not come up" >&2
+            cat "${CI_DIR}/mock.log" >&2 || true
+            exit 1
+          fi
+          curl -fsS "http://127.0.0.1:${MOCK_PORT}/health"; echo
+
+      - name: stage box configuration
+        env:
+          # Via env, not `${{ }}` inline: keeps the value out of the generated
+          # step script and out of any command line.
+          GH_JOB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # /etc/lavasec/lavasec.env exactly as a real box has it: root:root 600.
+          # Written with a here-doc through sudo tee so no value reaches argv.
+          sudo install -d -m 755 /etc/lavasec
+          sudo sh -c "umask 077; cat > /etc/lavasec/lavasec.env" <<EOF
+          LITELLM_MASTER_KEY=$(cat "${CI_DIR}/master.key")
+          OLLAMA_API_KEY=$(cat "${CI_DIR}/mock.key")
+          EOF
+          sudo chown root:root /etc/lavasec/lavasec.env
+          sudo chmod 600 /etc/lavasec/lavasec.env
+
+          # 20-git reads a PAT from this path; the job token can clone this
+          # public repo, which is all the CI inventory below asks for.
+          mkdir -p "${HOME}/.config/lavasec"
+          (umask 077 && printf %s "${GH_JOB_TOKEN}" > "${HOME}/.config/lavasec/github-token")
+
+          # Scope the sync inventory to this repo only: the real inventory is
+          # private org repos the job token cannot read. Data, not logic --
+          # 20-git's clone/pull/upstream-classification paths are unchanged,
+          # and those are exactly the paths that carried the last three bugs.
+          printf '%s\n' '# CI inventory (replaced by .github/workflows/e2e.yml)' \
+            'lavasecurity/lavasec-base' > config/repos.txt
+
+      - name: start argv leak tripwire
+        run: |
+          set -euo pipefail
+          # Runtime companion to the source-level guard in `ci`: that guard
+          # proves the repo writes no -H/-u options; this proves no credential
+          # actually appeared in a process command line while the chain ran.
+          # Best-effort by nature -- a sampler can prove a leak, never prove
+          # absence -- so the structural guard stays authoritative.
+          : > "${CI_DIR}/argv-hits.txt"
+          nohup bash -c '
+            while :; do
+              # -ww: unlimited width. Without it ps truncates args at 80
+              # columns off a tty, so a key late in a long command line
+              # would slip past this check unnoticed.
+              # Written via mv so a reader never catches a truncated file.
+              ps -eo args= -ww > "'"${CI_DIR}"'/ps.tmp" 2>/dev/null || true
+              mv -f "'"${CI_DIR}"'/ps.tmp" "'"${CI_DIR}"'/ps.snap" 2>/dev/null || true
+              grep -F -f "'"${CI_DIR}"'/secrets.grep" "'"${CI_DIR}"'/ps.snap" \
+                >> "'"${CI_DIR}"'/argv-hits.txt" 2>/dev/null || true
+              sleep 0.2
+            done' > /dev/null 2>&1 &
+          echo $! > "${CI_DIR}/sampler.pid"
+
+      - name: run the chain
+        env:
+          # The seam that lets the whole gateway path run against the mock.
+          OLLAMA_BASE: http://127.0.0.1:${{ env.MOCK_PORT }}/v1
+        run: |
+          set -uo pipefail
+          # Slices needing a live tailnet cannot run on a hosted runner.
+          TAILNET_ONLY="50-tailscale.sh 60-t3code.sh 65-opencode-web.sh"
+          rc=0
+          ran=0
+          for s in scripts/[0-9]*.sh; do
+            b="$(basename "${s}")"
+            case " ${TAILNET_ONLY} " in
+              *" ${b} "*) echo "==> ${s} SKIPPED (requires a live tailnet)"; continue ;;
+            esac
+            echo "==> ${s}"
+            # No -e, same as bootstrap.sh: report every failure in one pass.
+            if ! bash "${s}"; then
+              echo "==> ${s} FAILED" >&2
+              rc=1
+            fi
+            ran=$((ran + 1))
+          done
+          echo "e2e: ran ${ran} slices"
+          [ "${ran}" -ge 5 ] || { echo "e2e: expected at least 5 runnable slices, ran ${ran}" >&2; rc=1; }
+          exit "${rc}"
+
+      - name: assert gateway shape
+        run: |
+          set -euo pipefail
+          # Independent of the script's own checks: loopback only, never wildcard.
+          ss -tln | grep -q '127\.0\.0\.1:4000' \
+            || { echo "gateway not on loopback:4000" >&2; ss -tln >&2; exit 1; }
+          if ss -tln | grep -qE '(0\.0\.0\.0|\[::\]):4000'; then
+            echo "gateway bound beyond loopback" >&2; ss -tln >&2; exit 1
+          fi
+
+          # Same non-argv discipline the scripts use.
+          cfg="$(mktemp)"; chmod 600 "${cfg}"
+          cat > "${cfg}" <<EOF
+          header = "Authorization: Bearer $(cat "${CI_DIR}/master.key")"
+          EOF
+          models="$(curl -fsS --max-time 20 -K "${cfg}" http://127.0.0.1:4000/v1/models)"
+
+          # Exact count: catches routes silently dropped or duplicated by the
+          # catalog sync. Only the mock provider is keyed, so the gateway must
+          # list precisely what the mock published.
+          count="$(printf '%s' "${models}" | jq '.data | length')"
+          if [ "${count}" != "${MOCK_MODEL_COUNT}" ]; then
+            echo "expected ${MOCK_MODEL_COUNT} routed models, gateway lists ${count}" >&2
+            echo "(if a keyless route was added to config/litellm.yaml, update this expectation)" >&2
+            exit 1
+          fi
+          dupes="$(printf '%s' "${models}" | jq -r '[.data[].id] | group_by(.) | map(select(length > 1)) | length')"
+          [ "${dupes}" = "0" ] || { echo "gateway lists ${dupes} duplicated model ids" >&2; exit 1; }
+
+          # A real completion through the gateway, asserting the sentinel round-trips.
+          model="$(printf '%s' "${models}" | jq -r '[.data[].id | select(startswith("ollama/"))][0]')"
+          body="$(mktemp)"
+          jq -n --arg m "${model}" '{model: $m, messages: [{role: "user", content: "E2E-GATEWAY-OK"}]}' > "${body}"
+          reply="$(curl -fsS --max-time 30 -K "${cfg}" -X POST \
+            --data-binary "@${body}" http://127.0.0.1:4000/v1/chat/completions)"
+          rm -f "${cfg}" "${body}"
+          grep -q "E2E-GATEWAY-OK" <<< "${reply}" \
+            || { echo "sentinel did not round-trip: ${reply}" >&2; exit 1; }
+          echo "OK: ${count} models, loopback-only, sentinel round-tripped via ${model}"
+
+      - name: assert pipe-buffer coverage still real
+        run: |
+          set -euo pipefail
+          # The #15 bug is a function of OUTPUT BYTES, not model count: below
+          # the 64 KiB pipe buffer `printf | grep -q` returns 0 and the bug is
+          # invisible. If this drops under the threshold the job is no longer
+          # covering that class, so fail instead of passing a hollow build.
+          size="$(LITELLM_MASTER_KEY="$(cat "${HOME}/.config/lavasec/gateway-key")" \
+            pi --list-models 2>&1 | wc -c)"
+          echo "pi --list-models: ${size} bytes"
+          if [ "${size}" -le 65536 ]; then
+            echo "only ${size} bytes -- below the 64 KiB pipe buffer, so the" >&2
+            echo "pipefail/SIGPIPE regression class would NOT be caught here." >&2
+            echo "Raise MOCK_MODEL_COUNT until this exceeds 65536." >&2
+            exit 1
+          fi
+
+      - name: assert the mock was actually exercised
+        run: |
+          set -euo pipefail
+          # Anti-vacuity: prove traffic reached the provider rather than the
+          # chain passing on cached or stubbed state.
+          grep -q 'GET /v1/models' "${CI_DIR}/mock.log" \
+            || { echo "mock never served a catalog request" >&2; exit 1; }
+          chats="$(grep -c 'POST /v1/chat/completions' "${CI_DIR}/mock.log" || true)"
+          [ "${chats:-0}" -ge 1 ] \
+            || { echo "mock never served a completion" >&2; exit 1; }
+          # A 401 means a credential failed to flow end-to-end.
+          if grep -q 'missing/incorrect bearer token' "${CI_DIR}/mock.log"; then
+            echo "mock rejected a request -- credential did not reach the provider" >&2
+            exit 1
+          fi
+          echo "OK: catalog fetched, ${chats} completions served, no auth failures"
+
+      - name: assert no credential reached a command line
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -s "${CI_DIR}/argv-hits.txt" ]; then
+            echo "credential observed in process argv -- /proc/<pid>/cmdline is world-readable" >&2
+            # Executable names only: never echo the matched line back into a log.
+            awk '{print "  offending process: " $1}' "${CI_DIR}/argv-hits.txt" | sort -u >&2
+            exit 1
+          fi
+          echo "OK: no credential seen in any sampled process argv"
+
+      - name: diagnostics
+        if: always()
+        run: |
+          [ -f "${CI_DIR}/sampler.pid" ] && kill "$(cat "${CI_DIR}/sampler.pid")" 2>/dev/null || true
+          echo "=== litellm unit ==="
+          sudo journalctl -u litellm -n 60 --no-pager 2>/dev/null || true
+          echo "=== mock provider (tail) ==="
+          tail -n 30 "${CI_DIR}/mock.log" 2>/dev/null || true
+          echo "=== listeners ==="
+          ss -tlnp 2>/dev/null || true
