@@ -41,10 +41,17 @@ sudo_root() { sudo -H env -u XDG_CONFIG_HOME -u XDG_CACHE_HOME \
 # t3 via npm with --ignore-scripts; node-pty ships no linux prebuilds, so
 # build that ONE native module deliberately rather than enabling install
 # scripts for every package in the tree.
+#
+# Installed under ROOT's npm prefix (sudo_root uses root's home, which has
+# no user ~/.npmrc), so query the root the SAME way: sudo_root npm root -g
+# returns root's global tree. A bare `npm root -g` (as this user) honours
+# the user prefix that 55-opencode.sh persists in ~/.npmrc and would return
+# ~/.local/lib/node_modules -- where t3 was NOT installed -- and the
+# node-pty build below would cd into a nonexistent path.
 if ! command -v t3 >/dev/null; then
   sudo_root npm install -g --ignore-scripts t3 >/dev/null
 fi
-npm_root="$(npm root -g)"
+npm_root="$(sudo_root npm root -g)"
 if [ ! -f "${npm_root}/t3/node_modules/node-pty/build/Release/pty.node" ]; then
   if ! command -v g++ >/dev/null; then
     sudo apt-get install -yq build-essential >/dev/null
@@ -73,6 +80,13 @@ Wants=network-online.target
 [Service]
 User=${USER}
 Environment=HOME=${HOME}
+# Prepend this user's opencode prefix bin (~/.local/bin, where 55-opencode.sh
+# installs the upgradeable, user-writable copy). systemd's default PATH
+# stops at /usr/bin, so without this the agent t3 spawns would find the
+# stale root-owned /usr/bin/opencode and "update opencode" would EACCES
+# → npm exit 243 → "Provider update failed". Paired with NoNewPrivileges:
+# the user copy needs no elevation, so the unit stays unprivileged.
+Environment=PATH=${HOME}/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 WorkingDirectory=${HOME}
 ExecStart=/bin/bash -c 'export LITELLM_MASTER_KEY="\$(cat ${KEY_FILE})"; [ -r ${HOME}/.config/lavasec/github-token ] && export GH_TOKEN="\$(cat ${HOME}/.config/lavasec/github-token)"; exec ${t3_bin} serve --mode web --host ${ts_ip} --port 3773 --no-browser'
 Restart=on-failure
