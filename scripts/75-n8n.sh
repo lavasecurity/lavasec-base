@@ -59,10 +59,18 @@ n8n_bin="$(command -v n8n)"
 # credentials, but the agent-dispatch.sh approach passes creds via env, not
 # n8n's credential store, so the blast radius of a lost key is low.
 #
-# N8N_BASIC_AUTH_ACTIVE: n8n's built-in basic auth, same posture as
-# opencode-web (65-opencode-web.sh). The tailnet is the primary defense;
-# basic auth is defence-in-depth for the HTTP surface.
-N8N_PASSWORD="${N8N_PASSWORD:-$(openssl rand -hex 12)}"
+# AUTH: there is deliberately no N8N_BASIC_AUTH_* here. Those variables were
+# removed in n8n 1.0 when built-in user management replaced basic auth --
+# verified against the shipped package (n8n 2.32.6 contains ZERO references to
+# N8N_BASIC_AUTH). Setting them looks like a control and enforces nothing, so
+# claiming basic auth here would be worse than claiming nothing.
+#
+# What actually protects this surface:
+#   1. the tailnet bind (below) — unreachable from the internet
+#   2. n8n's own owner account, which YOU claim on first visit
+# Until that account exists the editor is unauthenticated to anyone who can
+# reach the tailnet address, and whoever loads it first becomes owner. The
+# readiness check below reports that state loudly rather than leaving it silent.
 
 # Credential-change fingerprint: same technique as 60-t3code.sh — mtime+size
 # of the gateway key file, so a rotated key triggers a unit restart without
@@ -84,9 +92,6 @@ Environment=N8N_HOST=${ts_ip}
 Environment=N8N_PORT=${N8N_PORT}
 Environment=N8N_PROTOCOL=http
 Environment=N8N_EDITOR_BASE_URL=http://${ts_name}:${N8N_PORT}
-Environment=N8N_BASIC_AUTH_ACTIVE=true
-Environment=N8N_BASIC_AUTH_USER=admin
-Environment=N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD}
 Environment=WEBHOOK_URL=http://${ts_name}:${N8N_PORT}
 Environment=EXECUTIONS_MODE=regular
 Environment=N8N_METRICS=true
@@ -161,9 +166,30 @@ fi
 refuse_if_wildcard
 
 echo "75-n8n: OK (http://${ts_name}:${N8N_PORT} — tailnet devices only)"
-echo "75-n8n: basic auth: admin / ${N8N_PASSWORD}"
-echo "75-n8n: basic auth password is in the service environment (journalctl -u n8n)"
-echo "75-n8n: to make it persistent across reboots, set N8N_PASSWORD in ~/.n8n/config"
+
+# Report the REAL auth state instead of asserting one. n8n exposes
+# userManagement.showSetupOnFirstLoad in its settings response; true means no
+# owner account exists yet, so the editor is open to anyone on the tailnet and
+# the first visitor claims it. If the field cannot be read, say so rather than
+# implying the instance is protected.
+setup_state="$(curl -fsS --max-time 10 "http://${ts_ip}:${N8N_PORT}/rest/settings" 2>/dev/null \
+  | jq -r '.data.userManagement.showSetupOnFirstLoad // "unknown"' 2>/dev/null || echo unknown)"
+case "${setup_state}" in
+  true)
+    echo "75-n8n: ⚠ NO OWNER ACCOUNT YET — the editor is unauthenticated to any"
+    echo "        tailnet device, and whoever opens it first becomes the owner."
+    echo "        Open http://${ts_name}:${N8N_PORT} and claim it NOW."
+    echo "        (n8n 1.0 removed N8N_BASIC_AUTH_*; user management is the only"
+    echo "         app-level auth, and it cannot be provisioned from a script.)"
+    ;;
+  false)
+    echo "75-n8n: owner account exists — editor requires login"
+    ;;
+  *)
+    echo "75-n8n: could not read the auth state from /rest/settings — check"
+    echo "        http://${ts_name}:${N8N_PORT} manually and confirm it asks for a login"
+    ;;
+esac
 echo ""
 echo "75-n8n: agent trigger workflows — import these from the n8n editor:"
 echo "  1. Schedule Trigger (every 5 min) → Execute Command: agent-dispatch.sh pr-reviewer B"
