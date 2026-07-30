@@ -18,6 +18,19 @@ ENV_FILE=/etc/lavasec/lavasec.env
 # capability guard below fails loudly if this ever drifts back below it.
 LITELLM_VERSION="${LITELLM_VERSION:-1.95.0rc1}"
 
+# Upstream bound is too loose, so we tighten it here. litellm 1.95.0rc1
+# declares fastapi>=0.136.3,<1.0, but its new management_v1 module imports
+# get_flat_dependant, which fastapi DELETED in 0.141.0 (present through
+# 0.140.0). pip therefore resolves a fastapi the proxy cannot import and
+# litellm dies at startup with:
+#   ImportError: cannot import name 'get_flat_dependant'
+#     from 'fastapi.dependencies.utils'
+# Caught by e2e, not in production — the service never binds, so this is a
+# hard failure rather than a degraded gateway.
+# REMOVE together with the LITELLM_VERSION pin above once litellm corrects
+# its own bound; this constraint is only meaningful while we sit on 1.95.0.
+LITELLM_FASTAPI_CONSTRAINT="${LITELLM_FASTAPI_CONSTRAINT:-fastapi<0.141}"
+
 # --- preflight: env file present, locked down, master key real ---
 if [ ! -f "${ENV_FILE}" ]; then
   echo "missing ${ENV_FILE} — see README quickstart" >&2
@@ -41,7 +54,9 @@ sudo install -d -m 755 /opt/lavasec
 if [ ! -x /opt/lavasec/venv/bin/pip ]; then
   sudo python3 -m venv /opt/lavasec/venv
 fi
-sudo /opt/lavasec/venv/bin/pip install -q --upgrade pip "litellm[proxy]${LITELLM_VERSION:+==${LITELLM_VERSION}}"
+sudo /opt/lavasec/venv/bin/pip install -q --upgrade pip \
+  "litellm[proxy]${LITELLM_VERSION:+==${LITELLM_VERSION}}" \
+  "${LITELLM_FASTAPI_CONSTRAINT}"
 
 # tracing deps only when tracing is configured — keeps the venv lean
 # otherwise (the callback in litellm.yaml renders under the same key)
