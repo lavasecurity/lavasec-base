@@ -241,6 +241,15 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
+          # Liveness FIRST: an empty hits file proves nothing if the sampler
+          # never ran -- a dead tripwire and a clean run look identical. The
+          # snapshot is the evidence that it was actually looking.
+          if [ ! -s "${CI_DIR}/ps.snap" ]; then
+            echo "argv tripwire produced no snapshot -- it never ran, so a" >&2
+            echo "clean result here would be vacuous. Failing instead." >&2
+            exit 1
+          fi
+          echo "tripwire alive: last snapshot $(wc -l < "${CI_DIR}/ps.snap") processes"
           if [ -s "${CI_DIR}/argv-hits.txt" ]; then
             echo "credential observed in process argv -- /proc/<pid>/cmdline is world-readable" >&2
             # Executable names only: never echo the matched line back into a log.
