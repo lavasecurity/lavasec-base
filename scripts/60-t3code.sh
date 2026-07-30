@@ -35,14 +35,16 @@ fi
 # build that ONE native module deliberately rather than enabling install
 # scripts for every package in the tree.
 if ! command -v t3 >/dev/null; then
-  sudo npm install -g --ignore-scripts t3 >/dev/null
+  # sudo -H throughout: Ubuntu's sudo preserves HOME, so root's npm/node-gyp
+  # caches would land root-owned in this user's home (see 55-opencode).
+  sudo -H npm install -g --ignore-scripts t3 >/dev/null
 fi
 npm_root="$(npm root -g)"
 if [ ! -f "${npm_root}/t3/node_modules/node-pty/build/Release/pty.node" ]; then
   if ! command -v g++ >/dev/null; then
     sudo apt-get install -yq build-essential >/dev/null
   fi
-  (cd "${npm_root}/t3/node_modules/node-pty" && sudo npx -y node-gyp rebuild >/dev/null 2>&1)
+  (cd "${npm_root}/t3/node_modules/node-pty" && sudo -H npx -y node-gyp rebuild >/dev/null 2>&1)
 fi
 echo "60-t3code: $(t3 --version 2>/dev/null | head -1)"
 

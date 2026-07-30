@@ -23,8 +23,13 @@ fi
 # platform binary). Keep --ignore-scripts so no transitive package runs
 # code, then run THIS package's postinstall deliberately.
 if ! opencode --version >/dev/null 2>&1; then
-  sudo npm install -g --ignore-scripts opencode-ai >/dev/null
-  (cd "$(npm root -g)/opencode-ai" && sudo node postinstall.mjs >/dev/null)
+  # sudo -H, not bare sudo: Ubuntu's sudo PRESERVES HOME, so this postinstall
+  # ran as root against THIS user's home and left a root-owned
+  # ~/.config/opencode -- which then failed the config write below on every
+  # fresh box (a long-lived box only escapes it if the dir predates the
+  # postinstall). -H sends root's writes to /root.
+  sudo -H npm install -g --ignore-scripts opencode-ai >/dev/null
+  (cd "$(npm root -g)/opencode-ai" && sudo -H node postinstall.mjs >/dev/null)
 fi
 echo "55-opencode: opencode $(opencode --version 2>/dev/null | head -1)"
 
@@ -118,6 +123,14 @@ fi
 # config OWNED by this script (box-staged; per-project opencode.json can
 # still override locally)
 mkdir -p "${OC_CONFIG_DIR}"
+# Repair a box already broken by the bare-sudo postinstall above: mkdir -p
+# succeeds on an existing unwritable directory, so without this the write
+# below fails with a bare "Permission denied" forever. Scoped to the one
+# directory this script declares it owns.
+if [ ! -w "${OC_CONFIG_DIR}" ]; then
+  echo "55-opencode: ${OC_CONFIG_DIR} not writable (root-owned by an earlier run) — reclaiming"
+  sudo chown -R "$(id -u):$(id -g)" "${OC_CONFIG_DIR}"
+fi
 jq -n --argjson models "${models_json}" '{
   "$schema": "https://opencode.ai/config.json",
   provider: {

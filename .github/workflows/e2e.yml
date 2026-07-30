@@ -259,3 +259,11 @@ jobs:
           tail -n 30 "${CI_DIR}/mock.log" 2>/dev/null || true
           echo "=== listeners ==="
           ss -tlnp 2>/dev/null || true
+          # Ownership under $HOME: bare `sudo npm`/`sudo node` leaves
+          # root-owned dirs here (Ubuntu sudo preserves HOME), which surfaces
+          # much later as a bare "Permission denied". Listed so a recurrence
+          # is self-diagnosing.
+          echo "=== $HOME dirs not owned by $(id -un) ==="
+          find "${HOME}/.config" "${HOME}/.npm" "${HOME}/.cache" "${HOME}/.pi" \
+            -maxdepth 2 ! -user "$(id -un)" -printf '%u:%g %M %p\n' 2>/dev/null | head -20 \
+            || true
