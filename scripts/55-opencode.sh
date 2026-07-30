@@ -142,7 +142,7 @@ oc_roundtrip() {
 }
 ok=""
 for attempt in 1 2; do
-  if reply=$(oc_roundtrip) && printf '%s' "${reply}" | grep -q "OC-GATEWAY-OK"; then
+  if reply=$(oc_roundtrip) && grep -q "OC-GATEWAY-OK" <<< "${reply}"; then
     ok=1
     break
   fi
