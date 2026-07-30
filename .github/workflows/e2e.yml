@@ -160,7 +160,7 @@ jobs:
         run: |
           set -uo pipefail
           # Slices needing a live tailnet cannot run on a hosted runner.
-          TAILNET_ONLY="50-tailscale.sh 60-t3code.sh 65-opencode-web.sh 75-n8n.sh"
+          TAILNET_ONLY="50-tailscale.sh 60-t3code.sh 65-opencode-web.sh"
           rc=0
           ran=0
           for s in scripts/[0-9]*.sh; do

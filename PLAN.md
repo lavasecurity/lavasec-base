@@ -71,22 +71,6 @@ sufficient on mobile, T3 Code becomes optional and the two-harness split
 collapses. (`--mdns` deliberately unused: it defaults the bind to
 0.0.0.0.)
 
-**C5 — n8n workflow orchestration (75-n8n.sh) — shipped**
-n8n on the tailnet (:5678), same posture as C3/C4: tailnet-bound,
-wildcard-refused, HTTP readiness, restart-only-when-changed. SQLite-backed
-(no Postgres, no Docker — a single Node.js process, ~200 MB RAM). Replaces
-the systemd timers as the VISUAL trigger + lineage layer for agent drains:
-n8n's Schedule Trigger nodes fire `agent-dispatch.sh` on a cadence, and the
-n8n dashboard shows run history, duration, and output per workflow. The
-agent contracts, dispatch script, gateway, and opencode runtime stay
-unchanged — n8n is the trigger + observability layer, not the execution
-layer. Auth is NOT basic auth: n8n 1.0 removed `N8N_BASIC_AUTH_*` (verified
-— zero references in the 2.32.6 package), so the only app-level control is
-n8n's own owner account, which cannot be provisioned from a script. The
-tailnet bind is therefore the real boundary, and the script reports whether
-the owner account has been claimed instead of asserting protection it does
-not have.
-
 **S5 — backlog (optional)**
 ufw explicit deny-in, unattended-upgrades, litellm log rotation.
 

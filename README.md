@@ -74,7 +74,6 @@ new shell defaults to the gateway and the verified model — your own
 | `scripts/60-t3code.sh` | T3 Code (`t3 serve`) web/mobile UI on the tailnet |
 | `scripts/65-opencode-web.sh` | OpenCode's own web UI on the tailnet (second surface) |
 | `scripts/70-verify-tracing.sh` | reconciles what Langfuse recorded against `/model/info` (skips when tracing is off) |
-| `scripts/75-n8n.sh` | n8n on the tailnet — visual trigger + run history for scheduled agent work |
 | `ci/mock-provider.py` | mock OpenAI-compatible provider so CI runs the real chain with no real keys |
 | `config/litellm.yaml` | gateway model routes (keys via env, never inline) |
 | `config/pi/` | pi extension registering the local gateway |
@@ -96,11 +95,10 @@ asserts at runtime what the static guards can only infer from source: the
 gateway is loopback-only, the catalog round-trips a sentinel, and no credential
 ever appeared in a process command line.
 
-Not covered: `50-tailscale`, `60-t3code`, `65-opencode-web` and `75-n8n` need a
-live tailnet, which a hosted runner has no way to join. Those stay
-owner-verified on the box. The run list is derived, so a newly added slice is
-included automatically rather than silently skipped — `75-n8n` failed `chain`
-on arrival for exactly that reason, which is the guard working.
+Not covered: `50-tailscale`, `60-t3code` and `65-opencode-web` need a live
+tailnet, which a hosted runner has no way to join. Those stay owner-verified on
+the box. The run list is derived, so a newly added slice is included
+automatically rather than silently skipped.
 
 ## Adding a repo to sync
 
