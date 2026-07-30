@@ -31,20 +31,25 @@ if [ -z "${ts_ip}" ]; then
   exit 1
 fi
 
+# Root with ROOT's own home and config dir: -H (sudo preserves HOME) plus
+# -u XDG_* (sudo does NOT strip XDG_CONFIG_HOME/XDG_CACHE_HOME, and npm and
+# node-gyp both honour XDG when it is exported). Otherwise root's caches land
+# root-owned in this user's home -- see the measured case in 55-opencode.sh.
+sudo_root() { sudo -H env -u XDG_CONFIG_HOME -u XDG_CACHE_HOME \
+  -u XDG_DATA_HOME -u XDG_STATE_HOME "$@"; }
+
 # t3 via npm with --ignore-scripts; node-pty ships no linux prebuilds, so
 # build that ONE native module deliberately rather than enabling install
 # scripts for every package in the tree.
 if ! command -v t3 >/dev/null; then
-  # sudo -H throughout: Ubuntu's sudo preserves HOME, so root's npm/node-gyp
-  # caches would land root-owned in this user's home (see 55-opencode).
-  sudo -H npm install -g --ignore-scripts t3 >/dev/null
+  sudo_root npm install -g --ignore-scripts t3 >/dev/null
 fi
 npm_root="$(npm root -g)"
 if [ ! -f "${npm_root}/t3/node_modules/node-pty/build/Release/pty.node" ]; then
   if ! command -v g++ >/dev/null; then
     sudo apt-get install -yq build-essential >/dev/null
   fi
-  (cd "${npm_root}/t3/node_modules/node-pty" && sudo -H npx -y node-gyp rebuild >/dev/null 2>&1)
+  (cd "${npm_root}/t3/node_modules/node-pty" && sudo_root npx -y node-gyp rebuild >/dev/null 2>&1)
 fi
 echo "60-t3code: $(t3 --version 2>/dev/null | head -1)"
 
