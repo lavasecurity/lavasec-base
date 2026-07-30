@@ -99,8 +99,25 @@ for line in "${lines[@]}"; do
       # "left alone" for every repo.
       # `|| ls_rc=$?` — a bare failing command would abort under set -e
       # before we could classify its exit code
+      # Probe the CONFIGURED upstream, not a same-name guess. A branch may
+      # track a differently named one (local-name -> origin/main) or a remote
+      # other than origin; probing refs/heads/<branch> then returns 2 and the
+      # branch_gone path below declares it deleted, so a perfectly working
+      # clone silently stops syncing forever.
+      # branch.<name>.merge is already a full ref ("refs/heads/main") and
+      # branch.<name>.remote names the remote — git's own configuration is the
+      # authority here, so no parsing of "origin/main" is needed (branch names
+      # may themselves contain slashes).
+      up_remote="$(git -C "${dest}" config --get "branch.${branch}.remote" 2>/dev/null || true)"
+      up_merge="$(git -C "${dest}" config --get "branch.${branch}.merge" 2>/dev/null || true)"
       ls_rc=0
-      git -C "${dest}" ls-remote --exit-code origin "refs/heads/${branch}" >/dev/null 2>&1 || ls_rc=$?
+      if [ -n "${up_remote}" ] && [ -n "${up_merge}" ]; then
+        git -C "${dest}" ls-remote --exit-code "${up_remote}" "${up_merge}" >/dev/null 2>&1 || ls_rc=$?
+      else
+        # no tracking config at all — the same-name probe is the best available
+        # signal, and the untracked-branch skip below handles the rest
+        git -C "${dest}" ls-remote --exit-code origin "refs/heads/${branch}" >/dev/null 2>&1 || ls_rc=$?
+      fi
       case "${ls_rc}" in
         0) ;;
         2) branch_gone=1 ;;
