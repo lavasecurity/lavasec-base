@@ -321,7 +321,11 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 if [ -z "${up}" ]; then
-  echo "gateway did not come up — check: journalctl -u litellm -n 50" >&2
+  # Dump the journal rather than only naming it: on a CI runner nobody is
+  # there to run the follow-up command, so the actual reason was lost and
+  # every startup failure looked identical from the log.
+  echo "gateway did not come up — last 50 journal lines follow:" >&2
+  sudo journalctl -u litellm -n 50 --no-pager >&2 || true
   exit 1
 fi
 
