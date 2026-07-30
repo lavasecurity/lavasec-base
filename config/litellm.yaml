@@ -70,5 +70,13 @@ litellm_settings:
   # the langfuse handler turns any metadata key listed here into a filterable
   # "key:value" tag. The model field itself cannot be changed without patching
   # litellm.
-  langfuse_default_tags: ["model_group"]
+  #
+  # Agent trace tags: the dispatch script (agent-dispatch.sh) sets these as env
+  # vars, and opencode passes them as metadata in gateway requests. They let
+  # Langfuse group traces by agent run + flow + module:
+  #   agent=<name>       — which agent made the call
+  #   run_id=<id>        — which drain invocation (groups all modules in a run)
+  #   flow=B|C           — drain or digest
+  #   module=<name>      — which module's LLM call (01-collect, 03-red-team, etc.)
+  langfuse_default_tags: ["model_group", "agent", "run_id", "flow", "module"]
   # <<< requires LANGFUSE_ENABLED
