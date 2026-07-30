@@ -8,23 +8,29 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE=/etc/lavasec/lavasec.env
 
-# NOT pinned: this branch needs the 1.95.0 line (only it emits Langfuse's
-# v4 ingestion header, which the langfuse_otel callback in litellm.yaml
-# depends on), but 1.95.0rc1 CANNOT RUN. Its management_v1 module imports
-# fastapi's get_flat_dependant while declaring only fastapi>=0.136.3,<1.0,
-# and fastapi deleted that symbol in 0.140.7 (present in 0.140.6, gone from
-# 0.140.7 onward). Any current fastapi therefore kills the proxy at import:
+# This branch needs the 1.95.0 line: only it emits Langfuse's v4 ingestion
+# header, which the langfuse_otel callback in litellm.yaml depends on. But
+# 1.95.0rc1 CANNOT RUN. Its management_v1 module imports fastapi's
+# get_flat_dependant while declaring only fastapi>=0.136.3,<1.0, and fastapi
+# deleted that symbol in 0.140.7 (present in 0.140.6, gone from 0.140.7 on).
+# Any current fastapi therefore kills the proxy at import:
 #   ImportError: cannot import name 'get_flat_dependant'
 #     from 'fastapi.dependencies.utils'
 # Constraining fastapi back to 0.140.6 would "fix" it, but that version was
 # superseded by 13 patches inside two days — pinning into the middle of an
 # upstream fix cycle to accommodate a release candidate is the worse trade.
 #
-# BLOCKED until litellm 1.95.0 STABLE ships with a corrected bound. Until
-# then the default install is latest-stable (1.94.x), which cannot emit v4,
-# so the capability guard below fails by design — that red is this branch
-# reporting its own blocker, not a regression. LITELLM_VERSION still
-# overrides for anyone wanting to retest an RC.
+# So sit BELOW the breakage rather than above it. The v4 header landed
+# 2026-07-19; management_v1 and its bad import arrived between 07-24 and
+# 07-29. 1.95.0.dev2 falls inside that window — v4 header present, broken
+# import absent, both checked against the tag rather than inferred.
+#
+# A dev build is a deliberate compromise, taken only because the RC above it
+# is not merely less-tested but known non-functional. It sits five days
+# behind rc1 and so lacks whatever else landed in between. Drop this pin on
+# 1.95.0 STABLE; the capability guard below fails loudly if a future default
+# ever falls back below v4.
+LITELLM_VERSION="${LITELLM_VERSION:-1.95.0.dev2}"
 
 # --- preflight: env file present, locked down, master key real ---
 if [ ! -f "${ENV_FILE}" ]; then
