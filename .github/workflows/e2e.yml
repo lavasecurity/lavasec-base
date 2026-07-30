@@ -241,6 +241,16 @@ jobs:
             || { echo "sentinel did not round-trip: ${reply}" >&2; exit 1; }
           echo "OK: ${count} models, loopback-only, sentinel round-tripped via ${model}"
 
+      - name: reconciliation gate self-test
+        run: |
+          set -euo pipefail
+          # The gate's live path needs Langfuse credentials, which CI has none
+          # of -- "run the chain" above therefore only proves it SKIPS cleanly.
+          # This exercises the part that is knowable without a backend: the
+          # cost-comparison verdicts, including that an unpriced provider
+          # reporting zero is correct rather than a failure.
+          LAVA_TRACING_SELFTEST=1 bash scripts/70-verify-tracing.sh
+
       - name: assert pipe-buffer coverage still real
         run: |
           set -euo pipefail
