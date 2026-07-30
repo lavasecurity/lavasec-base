@@ -8,28 +8,23 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE=/etc/lavasec/lavasec.env
 
-# Pinned to a release CANDIDATE deliberately. litellm.yaml routes tracing
-# through the langfuse_otel callback, which only reaches Langfuse's v4
-# ingestion path from the 1.95.0 line — the x-langfuse-ingestion-version
-# header is absent from the whole 1.94.x line, including stable 1.94.0.
-# Installing latest-stable here would render a config this box cannot
-# satisfy, so the version and the callback are pinned together.
-# Move to 1.95.0 stable (or later) as soon as it ships; the langfuse_otel
-# capability guard below fails loudly if this ever drifts back below it.
-LITELLM_VERSION="${LITELLM_VERSION:-1.95.0rc1}"
-
-# Upstream bound is too loose, so we tighten it here. litellm 1.95.0rc1
-# declares fastapi>=0.136.3,<1.0, but its new management_v1 module imports
-# get_flat_dependant, which fastapi DELETED in 0.141.0 (present through
-# 0.140.0). pip therefore resolves a fastapi the proxy cannot import and
-# litellm dies at startup with:
+# NOT pinned: this branch needs the 1.95.0 line (only it emits Langfuse's
+# v4 ingestion header, which the langfuse_otel callback in litellm.yaml
+# depends on), but 1.95.0rc1 CANNOT RUN. Its management_v1 module imports
+# fastapi's get_flat_dependant while declaring only fastapi>=0.136.3,<1.0,
+# and fastapi deleted that symbol in 0.140.7 (present in 0.140.6, gone from
+# 0.140.7 onward). Any current fastapi therefore kills the proxy at import:
 #   ImportError: cannot import name 'get_flat_dependant'
 #     from 'fastapi.dependencies.utils'
-# Caught by e2e, not in production — the service never binds, so this is a
-# hard failure rather than a degraded gateway.
-# REMOVE together with the LITELLM_VERSION pin above once litellm corrects
-# its own bound; this constraint is only meaningful while we sit on 1.95.0.
-LITELLM_FASTAPI_CONSTRAINT="${LITELLM_FASTAPI_CONSTRAINT:-fastapi<0.141}"
+# Constraining fastapi back to 0.140.6 would "fix" it, but that version was
+# superseded by 13 patches inside two days — pinning into the middle of an
+# upstream fix cycle to accommodate a release candidate is the worse trade.
+#
+# BLOCKED until litellm 1.95.0 STABLE ships with a corrected bound. Until
+# then the default install is latest-stable (1.94.x), which cannot emit v4,
+# so the capability guard below fails by design — that red is this branch
+# reporting its own blocker, not a regression. LITELLM_VERSION still
+# overrides for anyone wanting to retest an RC.
 
 # --- preflight: env file present, locked down, master key real ---
 if [ ! -f "${ENV_FILE}" ]; then
@@ -54,9 +49,11 @@ sudo install -d -m 755 /opt/lavasec
 if [ ! -x /opt/lavasec/venv/bin/pip ]; then
   sudo python3 -m venv /opt/lavasec/venv
 fi
-sudo /opt/lavasec/venv/bin/pip install -q --upgrade pip \
-  "litellm[proxy]${LITELLM_VERSION:+==${LITELLM_VERSION}}" \
-  "${LITELLM_FASTAPI_CONSTRAINT}"
+sudo /opt/lavasec/venv/bin/pip install -q --upgrade pip "litellm[proxy]${LITELLM_VERSION:+==${LITELLM_VERSION}}"
+# Report what actually landed. `pip -q` hides resolution entirely, so when
+# the proxy failed to import there was no way to tell which versions were
+# involved without a second trip to the box.
+echo "30-gateway: litellm=$(/opt/lavasec/venv/bin/pip show litellm 2>/dev/null | awk '/^Version:/{print $2}') fastapi=$(/opt/lavasec/venv/bin/pip show fastapi 2>/dev/null | awk '/^Version:/{print $2}')"
 
 # tracing deps only when tracing is configured — keeps the venv lean
 # otherwise (the callback in litellm.yaml renders under the same key)
