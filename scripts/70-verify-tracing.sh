@@ -131,7 +131,12 @@ fi
 sent="$(mktemp)"; trap 'rm -f "${gw_cfg}" "${sent}"' EXIT
 while IFS=$'\t' read -r provider model in_cost out_cost; do
   [ -n "${provider}" ] || continue
-  trace_id="lavasec-recon-$(date +%s)-$(tr -dc a-f0-9 < /dev/urandom | head -c 12)"
+  # openssl, NOT `tr < /dev/urandom | head -c 12`: head exits at 12 bytes, tr
+  # keeps writing and takes SIGPIPE, and under pipefail+errexit the 141 aborts
+  # the whole script. Same class as the false negative fixed in #15 -- and it
+  # would have fired on the FIRST probe, on a path CI cannot reach (CI skips
+  # before this line for want of Langfuse credentials).
+  trace_id="lavasec-recon-$(date +%s)-$(openssl rand -hex 6)"
   body="$(mktemp)"
   jq -n --arg m "${model}" --arg t "${trace_id}" '{
     model: $m,
@@ -197,7 +202,9 @@ EOF
 
   if [ "${cost}" = "ABSENT" ]; then
     printf '%-12s %-34s %s\n' "${provider}" "${model}" "FAIL: no cost field recognised in trace"
-    printf '%s\n' "${trace}" | head -c 400 >&2; echo >&2
+    # bash substring, not `| head -c`: same SIGPIPE-under-pipefail trap, and
+    # here it would abort precisely when there is a failure to report.
+    printf '%s\n' "${trace:0:400}" >&2
     rc=1; continue
   fi
 
