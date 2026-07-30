@@ -1,6 +1,7 @@
 # lavasec-base
 
 [![ci](https://github.com/lavasecurity/lavasec-base/actions/workflows/ci.yml/badge.svg)](https://github.com/lavasecurity/lavasec-base/actions/workflows/ci.yml)
+[![e2e](https://github.com/lavasecurity/lavasec-base/actions/workflows/e2e.yml/badge.svg)](https://github.com/lavasecurity/lavasec-base/actions/workflows/e2e.yml)
 [![security](https://github.com/lavasecurity/lavasec-base/actions/workflows/security.yml/badge.svg)](https://github.com/lavasecurity/lavasec-base/actions/workflows/security.yml)
 ![platform](https://img.shields.io/badge/platform-Ubuntu%2024.04%20·%20arm64%20%7C%20x86__64-E95420)
 ![free tier](https://img.shields.io/badge/runs%20on-Oracle%20Always%20Free-2f6db3)
@@ -72,11 +73,31 @@ new shell defaults to the gateway and the verified model — your own
 | `scripts/55-opencode.sh` | OpenCode harness wired to the gateway (T3 Code's agent backend) |
 | `scripts/60-t3code.sh` | T3 Code (`t3 serve`) web/mobile UI on the tailnet |
 | `scripts/65-opencode-web.sh` | OpenCode's own web UI on the tailnet (second surface) |
+| `ci/mock-provider.py` | mock OpenAI-compatible provider so CI runs the real chain with no real keys |
 | `config/litellm.yaml` | gateway model routes (keys via env, never inline) |
 | `config/pi/` | pi extension registering the local gateway |
 | `config/repos.txt` | repos to sync |
 | `systemd/litellm.service` | unit template |
 | `env/example.env` | secret template — real values live only on the VM |
+
+## What CI checks
+
+`ci` is static: `bash -n`, shellcheck, config sanity, and two structural guards
+(no credential-bearing `curl` options, no secret-shaped strings).
+
+`e2e` runs the chain for real on a throwaway Ubuntu 24.04 runner — because
+static analysis cannot see runtime behaviour, and shellcheck does not flag the
+`printf | grep -q` + `pipefail` false negative that once reached `main` green.
+A mock provider (`ci/mock-provider.py`) plugs into the `OLLAMA_BASE` override,
+so no real credentials are involved and fork PRs work unchanged. It also
+asserts at runtime what the static guards can only infer from source: the
+gateway is loopback-only, the catalog round-trips a sentinel, and no credential
+ever appeared in a process command line.
+
+Not covered: `50-tailscale`, `60-t3code` and `65-opencode-web` need a live
+tailnet, which a hosted runner has no way to join. Those stay owner-verified on
+the box. The run list is derived, so a newly added slice is included
+automatically rather than silently skipped.
 
 ## Adding a repo to sync
 

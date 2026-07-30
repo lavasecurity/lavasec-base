@@ -2,3 +2,4 @@
 env/*.env
 !env/example.env
 config/repos.local.txt
+__pycache__/

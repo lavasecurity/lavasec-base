@@ -23,8 +23,13 @@ fi
 # platform binary). Keep --ignore-scripts so no transitive package runs
 # code, then run THIS package's postinstall deliberately.
 if ! opencode --version >/dev/null 2>&1; then
-  sudo npm install -g --ignore-scripts opencode-ai >/dev/null
-  (cd "$(npm root -g)/opencode-ai" && sudo node postinstall.mjs >/dev/null)
+  # sudo -H, not bare sudo: Ubuntu's sudo PRESERVES HOME, so this postinstall
+  # ran as root against THIS user's home and left a root-owned
+  # ~/.config/opencode -- which then failed the config write below on every
+  # fresh box (a long-lived box only escapes it if the dir predates the
+  # postinstall). -H sends root's writes to /root.
+  sudo -H npm install -g --ignore-scripts opencode-ai >/dev/null
+  (cd "$(npm root -g)/opencode-ai" && sudo -H node postinstall.mjs >/dev/null)
 fi
 echo "55-opencode: opencode $(opencode --version 2>/dev/null | head -1)"
 
@@ -118,14 +123,30 @@ fi
 # config OWNED by this script (box-staged; per-project opencode.json can
 # still override locally)
 mkdir -p "${OC_CONFIG_DIR}"
-jq -n --argjson models "${models_json}" '{
+# Repair a box already broken by the bare-sudo postinstall above: mkdir -p
+# succeeds on an existing unwritable directory, so without this the write
+# below fails with a bare "Permission denied" forever. Scoped to the one
+# directory this script declares it owns.
+if [ ! -w "${OC_CONFIG_DIR}" ]; then
+  echo "55-opencode: ${OC_CONFIG_DIR} not writable ($(stat -c '%U:%G %a' "${OC_CONFIG_DIR}")) — reclaiming"
+  sudo chown -R "$(id -u):$(id -g)" "${OC_CONFIG_DIR}"
+fi
+
+# --slurpfile, NOT --argjson: a single argv string is capped at 128 KiB
+# (MAX_ARG_STRLEN), which this catalog exceeds somewhere past ~500 models --
+# jq then dies with "Argument list too long". Same lesson as the credential
+# rule: keep bulk data out of argv and hand it over as a file.
+models_file="$(mktemp)"
+trap 'rm -f "${models_file}"' EXIT
+printf '%s' "${models_json}" > "${models_file}"
+jq -n --slurpfile models "${models_file}" '{
   "$schema": "https://opencode.ai/config.json",
   provider: {
     "lava-gateway": {
       npm: "@ai-sdk/openai-compatible",
       name: "Lava Gateway",
       options: { baseURL: "http://127.0.0.1:4000/v1", apiKey: "{env:LITELLM_MASTER_KEY}" },
-      models: $models
+      models: $models[0]   # slurpfile wraps the document in an array
     }
   }
 }' > "${OC_CONFIG_DIR}/opencode.json"

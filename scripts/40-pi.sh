@@ -11,7 +11,10 @@ ENV_FILE=/etc/lavasec/lavasec.env
 KEY_FILE="${HOME}/.config/lavasec/gateway-key"
 EXT_DIR="${HOME}/.pi/agent/extensions"
 
-sudo npm install -g --ignore-scripts @earendil-works/pi-coding-agent >/dev/null
+# sudo -H, not bare sudo: Ubuntu's sudo PRESERVES HOME, so root's npm cache
+# and any config a package writes land root-owned in THIS user's home and
+# break later unprivileged writes there. -H points root at /root instead.
+sudo -H npm install -g --ignore-scripts @earendil-works/pi-coding-agent >/dev/null
 
 # client key: the master key is the gateway's CLIENT credential too; pi runs
 # as this user, so it gets a user-domain 600 copy (root env stays root-only).
