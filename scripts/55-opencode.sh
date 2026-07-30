@@ -14,34 +14,49 @@ ENV_FILE=/etc/lavasec/lavasec.env
 KEY_FILE="${HOME}/.config/lavasec/gateway-key"
 OC_CONFIG_DIR="${HOME}/.config/opencode"
 
+# opencode is installed into a USER-WRITABLE npm prefix (~/.local), never
+# the root-owned global (/usr/lib/node_modules). This is load-bearing:
+# T3 Code (60-t3code.sh, NoNewPrivileges=true) cannot elevate, and its
+# "update opencode" runs `opencode upgrade`, which uses the npm method —
+# `npm install -g opencode-ai`. Against the root-owned global that dies
+# EACCES → npm exit 243 → "Provider update failed". Against the user prefix
+# the same command writes to ~/.local and succeeds unprivileged. The prefix
+# is recorded in the user's ~/.npmrc so opencode's bare `npm install -g`
+# lands here, and ~/.local/bin is already on PATH for login/interactive
+# shells via the stock ~/.profile.
+OC_PREFIX="${HOME}/.local"
+OC_BIN_DIR="${OC_PREFIX}/bin"
+export PATH="${OC_BIN_DIR}:${PATH}"
+
 if [ ! -s "${KEY_FILE}" ]; then
   echo "55-opencode: missing ${KEY_FILE} — run scripts/40-pi.sh first" >&2
   exit 1
 fi
 
-# Run root with ROOT's own home AND config dir. Both halves are needed:
-#   -H            Ubuntu's sudo preserves HOME, so root would write to the
-#                 invoking user's home.
-#   -u XDG_*      sudo does NOT strip XDG_CONFIG_HOME, and any environment that
-#                 exports it (GitHub runners set XDG_CONFIG_HOME=$HOME/.config,
-#                 as do many desktops) overrides HOME for tools that honour
-#                 XDG -- opencode does.
-# Measured on a runner: opencode's postinstall calls verifyBinary(), which
-# EXECUTES the opencode binary as root; the binary then creates its config dir
-# from XDG_CONFIG_HOME, ignoring HOME. With -H alone that produced a root-owned
-# /home/runner/.config/opencode and nothing under /root; with XDG_CONFIG_HOME
-# unset it created /root/.config/opencode and left the user's home clean. A
-# root-owned config dir then fails the unprivileged write further down, so a
-# fresh box could never finish this slice.
-sudo_root() { sudo -H env -u XDG_CONFIG_HOME -u XDG_CACHE_HOME \
-  -u XDG_DATA_HOME -u XDG_STATE_HOME "$@"; }
-
-# npm package is opencode-ai; it NEEDS its own postinstall (fetches the
-# platform binary). Keep --ignore-scripts so no transitive package runs
-# code, then run THIS package's postinstall deliberately.
-if ! opencode --version >/dev/null 2>&1; then
-  sudo_root npm install -g --ignore-scripts opencode-ai >/dev/null
-  (cd "$(npm root -g)/opencode-ai" && sudo_root node postinstall.mjs >/dev/null)
+# Install + postinstall run AS THIS USER, not root. opencode-ai's
+# postinstall calls verifyBinary(), which EXECUTES the binary, which then
+# materialises its config dir from HOME/XDG — owner = whoever ran it. As
+# this user that is ~/.config/opencode owned by this user, so the
+# unprivileged config write below just works. The old root install instead
+# left root-owned config dirs under this user's home: `sudo -H` preserves
+# HOME and XDG_* survives sudo, so a fresh box could never finish this
+# slice. Running as the user sidesteps the whole class — the root-owned-dir
+# reclaim block below stays only to mend boxes already broken by the
+# previous install.
+#
+# The prefix above is persisted to ~/.npmrc, so `npm install -g` lands in
+# OC_PREFIX and `npm root -g` returns OC_PREFIX/lib/node_modules. Gate on
+# the USER-prefix binary, not `command -v opencode`: a box that ran the old
+# root install still has /usr/bin/opencode, which would pass a bare version
+# check and skip installing the upgradeable user copy.
+#
+# opencode-ai NEEDS its own postinstall (fetches the platform binary). Keep
+# --ignore-scripts so no transitive package runs code, then run THIS
+# package's postinstall deliberately.
+npm config set prefix "${OC_PREFIX}"
+if [ ! -x "${OC_BIN_DIR}/opencode" ]; then
+  npm install -g --ignore-scripts opencode-ai >/dev/null
+  (cd "$(npm root -g)/opencode-ai" && node postinstall.mjs >/dev/null)
 fi
 echo "55-opencode: opencode $(opencode --version 2>/dev/null | head -1)"
 
@@ -135,10 +150,11 @@ fi
 # config OWNED by this script (box-staged; per-project opencode.json can
 # still override locally)
 mkdir -p "${OC_CONFIG_DIR}"
-# Repair a box already broken by the bare-sudo postinstall above: mkdir -p
-# succeeds on an existing unwritable directory, so without this the write
-# below fails with a bare "Permission denied" forever. Scoped to the one
-# directory this script declares it owns.
+# Repair a box already broken by the OLD root postinstall (pre-user-prefix
+# installs ran verifyBinary() as root, creating root-owned dirs here):
+# mkdir -p succeeds on an existing unwritable directory, so without this the
+# write below fails with a bare "Permission denied" forever. Scoped to the
+# one directory this script declares it owns. Fresh boxes never hit it.
 if [ ! -w "${OC_CONFIG_DIR}" ]; then
   echo "55-opencode: ${OC_CONFIG_DIR} not writable ($(stat -c '%U:%G %a' "${OC_CONFIG_DIR}")) — reclaiming"
   sudo chown -R "$(id -u):$(id -g)" "${OC_CONFIG_DIR}"

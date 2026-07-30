@@ -73,6 +73,13 @@ Wants=network-online.target
 [Service]
 User=${USER}
 Environment=HOME=${HOME}
+# Prepend this user's opencode prefix bin (~/.local/bin, where 55-opencode.sh
+# installs the upgradeable, user-writable copy). systemd's default PATH
+# stops at /usr/bin, so without this the agent t3 spawns would find the
+# stale root-owned /usr/bin/opencode and "update opencode" would EACCES
+# → npm exit 243 → "Provider update failed". Paired with NoNewPrivileges:
+# the user copy needs no elevation, so the unit stays unprivileged.
+Environment=PATH=${HOME}/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 WorkingDirectory=${HOME}
 ExecStart=/bin/bash -c 'export LITELLM_MASTER_KEY="\$(cat ${KEY_FILE})"; [ -r ${HOME}/.config/lavasec/github-token ] && export GH_TOKEN="\$(cat ${HOME}/.config/lavasec/github-token)"; exec ${t3_bin} serve --mode web --host ${ts_ip} --port 3773 --no-browser'
 Restart=on-failure

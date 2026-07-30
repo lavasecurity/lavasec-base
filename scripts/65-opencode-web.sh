@@ -10,6 +10,12 @@ set -euo pipefail
 PORT="${OPENCODE_WEB_PORT:-4096}"
 KEY_FILE="${HOME}/.config/lavasec/gateway-key"
 
+# Resolve the upgradeable, user-writable opencode from 55-opencode.sh's
+# prefix (~/.local/bin) regardless of how this slice is invoked — a
+# non-interactive shell's PATH stops at /usr/bin, where only the stale
+# root-owned copy (if any) lives.
+export PATH="${HOME}/.local/bin:${PATH}"
+
 if ! command -v opencode >/dev/null; then
   echo "65-opencode-web: opencode not installed — run scripts/55-opencode.sh first" >&2
   exit 1
@@ -61,6 +67,7 @@ Wants=network-online.target
 [Service]
 User=${USER}
 Environment=HOME=${HOME}
+Environment=PATH=${HOME}/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 WorkingDirectory=${HOME}
 ExecStart=/bin/bash -c 'export LITELLM_MASTER_KEY="\$(cat ${KEY_FILE})"; export OPENCODE_SERVER_USERNAME=lavasec; export OPENCODE_SERVER_PASSWORD="\$(cat ${WEB_PW_FILE})"; [ -r ${HOME}/.config/lavasec/github-token ] && export GH_TOKEN="\$(cat ${HOME}/.config/lavasec/github-token)"; exec ${oc_bin} web --hostname ${ts_ip} --port ${PORT}'
 Restart=on-failure
