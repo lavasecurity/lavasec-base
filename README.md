@@ -81,6 +81,21 @@ new shell defaults to the gateway and the verified model — your own
 | `systemd/litellm.service` | unit template |
 | `env/example.env` | secret template — real values live only on the VM |
 
+## Versions
+
+`main` is the moving edge. Tags mark states verified end-to-end **on a real
+box**, which is a stronger claim than CI-green — CI cannot reach the tailnet
+slices or the Langfuse path. For a known-good starting point:
+
+```bash
+git tag -l                 # list verified states
+git checkout v0.1.0        # pin to one
+```
+
+`bootstrap.sh` prints the checkout it is running from as its first line
+(`git describe`, with `-dirty` when locally edited), so pasted output always
+says which version produced it. See [CHANGELOG.md](CHANGELOG.md).
+
 ## What CI checks
 
 `ci` is static: `bash -n`, shellcheck, config sanity, and two structural guards
