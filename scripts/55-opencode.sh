@@ -45,16 +45,24 @@ fi
 # previous install.
 #
 # The prefix above is persisted to ~/.npmrc, so `npm install -g` lands in
-# OC_PREFIX and `npm root -g` returns OC_PREFIX/lib/node_modules. Gate on
-# the USER-prefix binary, not `command -v opencode`: a box that ran the old
-# root install still has /usr/bin/opencode, which would pass a bare version
-# check and skip installing the upgradeable user copy.
+# OC_PREFIX and `npm root -g` returns OC_PREFIX/lib/node_modules.
+#
+# Gate on the USER-prefix binary actually WORKING (`--version`), invoking it
+# by absolute path: `command -v opencode` / a PATH search would fall back to
+# the stale root-owned /usr/bin/opencode left by the old install and pass. A
+# bare `-x` is not enough either: `npm install --ignore-scripts` creates the
+# bin symlink BEFORE the separate postinstall.mjs fetches the platform
+# binary, so if postinstall fails or bootstrap is interrupted, `-x` is
+# satisfied by a broken symlink and the required postinstall is skipped
+# forever. `--version` on the absolute path fails for either a missing OR
+# broken install, so a re-run of bootstrap repairs it instead of selecting
+# an unusable copy (postinstall failure still aborts loudly under `set -e`).
 #
 # opencode-ai NEEDS its own postinstall (fetches the platform binary). Keep
 # --ignore-scripts so no transitive package runs code, then run THIS
 # package's postinstall deliberately.
 npm config set prefix "${OC_PREFIX}"
-if [ ! -x "${OC_BIN_DIR}/opencode" ]; then
+if ! "${OC_BIN_DIR}/opencode" --version >/dev/null 2>&1; then
   npm install -g --ignore-scripts opencode-ai >/dev/null
   (cd "$(npm root -g)/opencode-ai" && node postinstall.mjs >/dev/null)
 fi
