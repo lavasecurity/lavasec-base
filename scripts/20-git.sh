@@ -118,8 +118,23 @@ for line in "${lines[@]}"; do
     # a branch"), so attempting it only turns a deliberate pin into a bootstrap
     # failure. Same reasoning as the two skips below: a clone the owner has
     # positioned on purpose is left where it is.
+    #
+    # But the remote is still PROBED before skipping. `branch` is empty here, so
+    # the ls_rc classifier above never ran — and with every repo pinned to a tag
+    # (which the README now recommends) NO network operation would happen at
+    # all, letting an expired PAT report "20-git: OK". That is the same
+    # absent-vs-failed conflation already fixed for untracked branches; a skip
+    # must never double as credential validation.
     if [ -z "${branch}" ]; then
-      echo "20-git: ${repo} on a detached HEAD ($(git -C "${dest}" describe --tags --always 2>/dev/null || echo '?')) — left alone"
+      det_rc=0
+      git -C "${dest}" ls-remote --exit-code --heads origin >/dev/null 2>&1 || det_rc=$?
+      pinned_at="$(git -C "${dest}" describe --tags --always 2>/dev/null || echo '?')"
+      case "${det_rc}" in
+        # 0 = reachable with heads; 2 = reachable but no heads (empty upstream).
+        # Both prove the credential and transport work, which is all this needs.
+        0|2) echo "20-git: ${repo} on a detached HEAD (${pinned_at}) — left alone" ;;
+        *)   failed+=("${repo}: pinned at ${pinned_at} but the remote probe failed (ls-remote rc=${det_rc}) — credential or network problem") ;;
+      esac
     elif [ -n "${branch}" ] && [ -z "${branch_gone}" ] && [ "${ls_rc}" = "0" ] \
         && ! git -C "${dest}" rev-parse --abbrev-ref "@{upstream}" >/dev/null 2>&1; then
       echo "20-git: ${repo} on '${branch}' (no tracking upstream) — left alone"
