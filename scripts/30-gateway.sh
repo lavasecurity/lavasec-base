@@ -3,10 +3,20 @@ set -euo pipefail
 # LiteLLM gateway: venv under /opt/lavasec, config + systemd unit installed,
 # service enabled, loopback-only bind verified, /v1/models smoke-tested.
 # Requires /etc/lavasec/lavasec.env (root:root 600) — see env/example.env.
-# Optional: LITELLM_VERSION=x.y.z to pin the litellm release.
+# Optional: LITELLM_VERSION=x.y.z to override the pinned litellm release.
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE=/etc/lavasec/lavasec.env
+
+# Pinned to a release CANDIDATE deliberately. litellm.yaml routes tracing
+# through the langfuse_otel callback, which only reaches Langfuse's v4
+# ingestion path from the 1.95.0 line — the x-langfuse-ingestion-version
+# header is absent from the whole 1.94.x line, including stable 1.94.0.
+# Installing latest-stable here would render a config this box cannot
+# satisfy, so the version and the callback are pinned together.
+# Move to 1.95.0 stable (or later) as soon as it ships; the langfuse_otel
+# capability guard below fails loudly if this ever drifts back below it.
+LITELLM_VERSION="${LITELLM_VERSION:-1.95.0rc1}"
 
 # --- preflight: env file present, locked down, master key real ---
 if [ ! -f "${ENV_FILE}" ]; then
