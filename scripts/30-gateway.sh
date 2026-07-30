@@ -20,17 +20,26 @@ ENV_FILE=/etc/lavasec/lavasec.env
 # superseded by 13 patches inside two days — pinning into the middle of an
 # upstream fix cycle to accommodate a release candidate is the worse trade.
 #
-# So sit BELOW the breakage rather than above it. The v4 header landed
-# 2026-07-19; management_v1 and its bad import arrived between 07-24 and
-# 07-29. 1.95.0.dev2 falls inside that window — v4 header present, broken
-# import absent, both checked against the tag rather than inferred.
+# Sitting BELOW the breakage does work: the v4 header landed 2026-07-19 and
+# management_v1 arrived between 07-24 and 07-29, so 1.95.0.dev2 has the
+# header without the bad import, and e2e went green on it against current
+# fastapi 0.141.1 (litellm=1.95.0.dev2 fastapi=0.141.1, 800 models served).
+# That proves the approach; it is not pinned here because shipping a dev
+# build to the gateway to chase an evaluator feature is not a trade worth
+# making while the release line is visibly unsettled.
 #
-# A dev build is a deliberate compromise, taken only because the RC above it
-# is not merely less-tested but known non-functional. It sits five days
-# behind rc1 and so lacks whatever else landed in between. Drop this pin on
-# 1.95.0 STABLE; the capability guard below fails loudly if a future default
-# ever falls back below v4.
-LITELLM_VERSION="${LITELLM_VERSION:-1.95.0.dev2}"
+# PARKED until litellm 1.95.0 STABLE. On revisit, check in this order:
+#   1. does litellm/proxy/management_endpoints/management_v1/common.py still
+#      import get_flat_dependant? if so the release is still broken against
+#      any fastapi >= 0.140.7 regardless of version number
+#   2. does litellm/integrations/langfuse/langfuse_otel.py still define
+#      LANGFUSE_INGESTION_VERSION = "4"? the guard below probes exactly this
+#   3. is the legacy langfuse callback still SDK v2? litellm PR #33391 would
+#      change that and make this whole OTEL migration unnecessary
+#
+# Until then the default install is latest-stable, which cannot emit v4, so
+# the capability guard below fails by design. That red is this branch
+# reporting its blocker, not a regression. LITELLM_VERSION still overrides.
 
 # --- preflight: env file present, locked down, master key real ---
 if [ ! -f "${ENV_FILE}" ]; then
