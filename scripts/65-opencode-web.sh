@@ -138,3 +138,20 @@ refuse_if_wildcard   # authoritative: a slow wildcard start can answer first
 
 echo "65-opencode-web: OK (http://${ts_name}:${PORT} — tailnet devices only, basic auth enforced)"
 echo "65-opencode-web: sign in as 'lavasec'; password: cat ${WEB_PW_FILE}"
+
+# Copy buttons need HTTPS (see 60-t3code.sh for the full rationale): the web
+# UI's navigator.clipboard.writeText() is gated behind a secure context, and
+# plain HTTP on a tailnet IP is not one, so copy silently fails. HTTPS is the
+# fix, not optional hardening. Enabling Serve here is the owner's deliberate
+# call (it mutates persistent daemon state, tailnet-wide, surviving reboots),
+# so this script only prints the command. The opencode-web port has no built
+# in :443 (t3code claims it), so use a distinct HTTPS port.
+# PREREQ: --https provisions a cert for the *.ts.net name, needing HTTPS cert
+# support + MagicDNS in the admin console (one-time, tailnet-wide).
+# NO-MAGIDNS FALLBACK: ssh -L ${PORT}:${ts_ip}:${PORT} -N ${USER}@${ts_ip},
+# then open http://localhost:${PORT} (localhost IS a secure context over HTTP).
+if ! sudo tailscale serve status 2>&1 | grep -q "${PORT}"; then
+  echo "65-opencode-web: copy buttons need HTTPS (plain HTTP on a tailnet IP is not a secure context):"
+  echo "                  sudo tailscale serve --bg --https=8443 http://${ts_ip}:${PORT}   # needs HTTPS cert support + MagicDNS (admin console)"
+  echo "                  no-DNS fallback: ssh -L ${PORT}:${ts_ip}:${PORT} -N ${USER}@${ts_ip}, then http://localhost:${PORT}"
+fi

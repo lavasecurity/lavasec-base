@@ -174,11 +174,30 @@ fi
 # script only reports the option; the owner opts in deliberately. The
 # node-specific enable URL is only obtainable from a mutating attempt, so
 # we point at the command instead.
+#
+# WHY HTTPS matters here (not just encryption): the web UI's copy buttons
+# call navigator.clipboard.writeText(), which browsers gate behind a
+# "secure context" — HTTPS on any host, OR plain HTTP on localhost only.
+# This slice serves plain HTTP on the tailnet IP (100.x), which is NOT a
+# secure context, so every copy button silently fails. HTTPS is the fix,
+# not optional hardening.
+#
+# PREREQ: `tailscale serve --https` provisions a Let's Encrypt cert for the
+# machine's *.ts.net name, which needs HTTPS cert support + MagicDNS
+# enabled in the admin console (one-time, tailnet-wide). Enable both, then:
+#
+# NO-MAGIDNS FALLBACK: an SSH local-forward to localhost also satisfies the
+# secure-context rule (http://localhost IS secure), with no admin step:
+#   ssh -L 3773:${ts_ip}:3773 -N ${USER}@${ts_ip}   # then open http://localhost:3773
+# (needs an SSH client on the viewing device; a phone via the Tailscale app
+# cannot, so HTTPS is the only path that works everywhere.)
+#
+# Note: the previous hint omitted --https, so it served plain HTTP and did
+# NOT fix clipboard. --https=<port> is what actually terminates TLS here.
 # print unless Serve is already configured for our port — covers
 # admin-disabled, unconfigured, and status-error cases alike
 if ! sudo tailscale serve status 2>&1 | grep -q "3773"; then
-  echo "60-t3code: optional HTTPS upgrade (not enabled by this script):"
-  # target the BOUND address — a bare port would proxy to loopback, where
-  # nothing listens
-  echo "           sudo tailscale serve --bg http://${ts_ip}:3773   # prints the tailnet enable URL if needed"
+  echo "60-t3code: copy buttons need HTTPS (plain HTTP on a tailnet IP is not a secure context — navigator.clipboard is blocked):"
+  echo "           sudo tailscale serve --bg --https=443 http://${ts_ip}:3773   # needs HTTPS cert support + MagicDNS (admin console)"
+  echo "           no-DNS fallback: ssh -L 3773:${ts_ip}:3773 -N ${USER}@${ts_ip}, then open http://localhost:3773"
 fi
