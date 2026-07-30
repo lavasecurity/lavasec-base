@@ -42,10 +42,45 @@ fi
 # 60-t3code.sh): no transitive package runs code at install time. n8n is pure
 # JavaScript/TypeScript with no native modules on linux-arm64.
 N8N_PORT="${N8N_PORT:-5678}"
+
+# Root with ROOT's own home and config dir — see the measured case in
+# 55-opencode.sh: -H alone is not enough because XDG_CONFIG_HOME survives sudo.
+sudo_root() { sudo -H env -u XDG_CONFIG_HOME -u XDG_CACHE_HOME \
+  -u XDG_DATA_HOME -u XDG_STATE_HOME "$@"; }
+
 if ! command -v n8n >/dev/null 2>&1; then
-  sudo npm install -g --ignore-scripts n8n >/dev/null
+  sudo_root npm install -g --ignore-scripts n8n >/dev/null
 fi
 echo "75-n8n: $(n8n --version 2>/dev/null | head -1)"
+
+# n8n depends on sqlite3 (a NATIVE module) for its default datastore. Keeping
+# --ignore-scripts means no transitive package runs code at install time, but it
+# also skips sqlite3's own install lifecycle — the step that fetches or builds
+# the binding — leaving n8n unable to open its database at all. Same shape as
+# node-pty in 60-t3code.sh: run that ONE package's lifecycle deliberately.
+# node-pre-gyp tries a prebuilt download first and only compiles as a fallback.
+sqlite_dir="$(npm root -g)/n8n/node_modules/sqlite3"
+[ -d "${sqlite_dir}" ] || sqlite_dir="$(npm root -g)/sqlite3"   # hoisted layout
+if [ -d "${sqlite_dir}" ]; then
+  binding="$(find "${sqlite_dir}" -name 'node_sqlite3.node' -print -quit 2>/dev/null || true)"
+  if [ -z "${binding}" ]; then
+    if ! command -v g++ >/dev/null; then
+      sudo apt-get install -yq build-essential >/dev/null
+    fi
+    (cd "${sqlite_dir}" && sudo_root npx --yes node-pre-gyp install --fallback-to-build >/dev/null 2>&1) || true
+    binding="$(find "${sqlite_dir}" -name 'node_sqlite3.node' -print -quit 2>/dev/null || true)"
+    if [ -z "${binding}" ]; then
+      echo "75-n8n: sqlite3 native binding missing and could not be built —" >&2
+      echo "        n8n cannot open its datastore. Check: cd ${sqlite_dir} && npx node-pre-gyp install" >&2
+      exit 1
+    fi
+  fi
+  echo "75-n8n: sqlite3 binding present"
+else
+  echo "75-n8n: could not locate the sqlite3 package under $(npm root -g) —" >&2
+  echo "        n8n's datastore driver may be missing; check the install" >&2
+  exit 1
+fi
 
 n8n_bin="$(command -v n8n)"
 
@@ -89,7 +124,21 @@ Wants=network-online.target
 User=${USER}
 Environment=HOME=${HOME}
 Environment=N8N_HOST=${ts_ip}
+# N8N_LISTEN_ADDRESS is what actually binds the socket; N8N_HOST only feeds
+# generated URLs (abstract-server.js names N8N_LISTEN_ADDRESS in its bind
+# error). Without this n8n listens on its default 0.0.0.0 — refuse_if_wildcard
+# below would catch it and stop the unit, so the slice failed closed rather
+# than exposed, but it never worked either.
+Environment=N8N_LISTEN_ADDRESS=${ts_ip}
 Environment=N8N_PORT=${N8N_PORT}
+# n8n 2.0 disables ExecuteCommand and LocalFileTrigger by default, explicitly
+# "for security reasons", and NODES_EXCLUDE=[] is the documented way back.
+# This slice exists to run agent-dispatch.sh from a Schedule Trigger, which
+# needs ExecuteCommand — so this is a DELIBERATE re-enable of a node upstream
+# turned off, not an oversight. It is also why the tailnet bind matters: an
+# n8n editor reachable by anything else is arbitrary command execution as this
+# user. https://docs.n8n.io/2-0-breaking-changes/
+Environment=NODES_EXCLUDE=[]
 Environment=N8N_PROTOCOL=http
 Environment=N8N_EDITOR_BASE_URL=http://${ts_name}:${N8N_PORT}
 Environment=WEBHOOK_URL=http://${ts_name}:${N8N_PORT}
@@ -134,7 +183,13 @@ fi
 # wildcard bind is a security failure, not a warning: stop the unit before
 # exiting so nothing keeps listening beyond the tailnet
 refuse_if_wildcard() {
-  if ss -tln | grep -qE "(0\.0\.0\.0|\[::\]):${N8N_PORT}"; then
+  # here-string, not `ss | grep -q`: a SIGPIPE 141 in an `if` condition reads
+  # as "no match", i.e. this guard would silently DECIDE THERE IS NO WILDCARD
+  # BIND. Latent today (ss output is ~1 KB, far under the pipe buffer) but this
+  # is the one check where a false negative means exposure, not a noisy failure.
+  # The same pattern is in 60-t3code.sh and 65-opencode-web.sh.
+  listeners="$(ss -tln 2>/dev/null || true)"
+  if grep -qE "(0\.0\.0\.0|\[::\]):${N8N_PORT}" <<< "${listeners}"; then
     sudo systemctl stop n8n
     echo "75-n8n: server bound beyond the tailnet — unit stopped, refusing" >&2
     exit 1
