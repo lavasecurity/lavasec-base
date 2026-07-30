@@ -127,6 +127,16 @@ every client reaches providers through the gateway, instrumenting it once
 traces them all — pi, opencode, and the web UIs — with no client-side SDK.
 Leave the keys empty and nothing is installed or sent.
 
+Reading the traces: Langfuse's **model** field is the routing string, not the
+name you called. Providers LiteLLM supports natively show their own prefix
+(`openrouter/…`), but an OpenAI-compatible endpoint it has no provider for is
+dispatched as `openai/<id>` — so a Neuralwatt call appears as
+`openai/glm-5.2`. That is the protocol adapter, not the vendor; the request
+went to Neuralwatt. Every trace is tagged `model_group:<the name you called>`,
+so filter or group by that tag for true per-vendor attribution — necessary
+once a real `OPENAI_API_KEY` exists, since native OpenAI routes would
+otherwise share the same `openai/` namespace.
+
 ## Adding a model
 
 Keyed native providers use wildcards (`openrouter/*`), so their catalogs
