@@ -72,11 +72,32 @@ litellm_settings:
   # litellm.
   #
   # Agent trace tags: the dispatch script (agent-dispatch.sh) sets these as env
-  # vars, and opencode passes them as metadata in gateway requests. They let
-  # Langfuse group traces by agent run + flow + module:
+  # vars, and opencode passes them as metadata in gateway requests.
   #   agent=<name>       — which agent made the call
-  #   run_id=<id>        — which drain invocation (groups all modules in a run)
   #   flow=B|C           — drain or digest
-  #   module=<name>      — which module's LLM call (01-collect, 03-red-team, etc.)
-  langfuse_default_tags: ["model_group", "agent", "run_id", "flow", "module"]
+  #   module=<name>      — which module's LLM call (01-collect, 03-red-team, …)
+  #
+  # These are all LOW-CARDINALITY, which is what a tag is for: a handful of
+  # stable values you filter by.
+  #
+  # Grouping the calls of ONE run is deliberately NOT a tag. A unique-per-run
+  # tag makes the tag filter grow without bound; Langfuse has a purpose-built
+  # concept instead. litellm pops metadata.session_id (langfuse.py:553) into
+  # trace_params (:614), so the run lands in the native Sessions view. Do NOT
+  # add session_id to this list — the tag loop (:530) runs BEFORE that pop, so
+  # listing it would make it a tag too and reintroduce the problem.
+  #
+  # HOW the agent dimensions actually arrive: not as request-body metadata.
+  # litellm's proxy honours these REQUEST HEADERS (litellm_pre_call_utils.py):
+  #   x-litellm-session-id  :1167 area, explicit high-priority session grouping
+  #   x-litellm-tags        :1168  comma-separated, becomes trace tags directly
+  #   x-litellm-trace-id           pin a trace id
+  # A generic `^x-.+-session-id$` pattern is honoured too (:43), which is how
+  # e.g. x-claude-code-session-id works. Session-id values must match
+  # ^[a-zA-Z0-9_-]{8,}$ (:47) — under 8 chars is silently rejected.
+  #
+  # Because x-litellm-tags sets tags directly, the agent/flow/module entries
+  # below are only needed if a caller sends those as metadata KEYS. They are
+  # harmless when absent (a key not in metadata simply produces no tag).
+  langfuse_default_tags: ["model_group", "agent", "flow", "module"]
   # <<< requires LANGFUSE_ENABLED
