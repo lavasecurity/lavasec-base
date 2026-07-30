@@ -73,6 +73,7 @@ new shell defaults to the gateway and the verified model — your own
 | `scripts/55-opencode.sh` | OpenCode harness wired to the gateway (T3 Code's agent backend) |
 | `scripts/60-t3code.sh` | T3 Code (`t3 serve`) web/mobile UI on the tailnet |
 | `scripts/65-opencode-web.sh` | OpenCode's own web UI on the tailnet (second surface) |
+| `scripts/70-verify-tracing.sh` | reconciles what Langfuse recorded against `/model/info` (skips when tracing is off) |
 | `scripts/75-n8n.sh` | n8n on the tailnet — visual trigger + run history for scheduled agent work |
 | `ci/mock-provider.py` | mock OpenAI-compatible provider so CI runs the real chain with no real keys |
 | `config/litellm.yaml` | gateway model routes (keys via env, never inline) |
@@ -138,6 +139,14 @@ went to Neuralwatt. Every trace is tagged `model_group:<the name you called>`,
 so filter or group by that tag for true per-vendor attribution — necessary
 once a real `OPENAI_API_KEY` exists, since native OpenAI routes would
 otherwise share the same `openai/` namespace.
+
+`scripts/70-verify-tracing.sh` keeps the two sides honest: it sends one
+minimal probe per configured provider, fetches that exact trace back by id,
+and fails if the trace is missing, if its `model_group` tag disagrees with the
+model you called, or if its cost contradicts the price in `/model/info`. A
+provider that publishes no pricing is expected to report zero, so that case
+passes rather than crying wolf. It runs as part of `bootstrap.sh` and skips
+silently when tracing is off.
 
 ## Adding a model
 
