@@ -56,4 +56,19 @@ litellm_settings:
   # >>> requires LANGFUSE_ENABLED
   success_callback: ["langfuse"]
   failure_callback: ["langfuse"]
+  # Tag every trace with the model_name the CALLER asked for.
+  #
+  # Langfuse's "model" field is the dispatch string, not the alias: litellm's
+  # reconstruct_model_name() prefers metadata["deployment"], which router.py
+  # sets to litellm_params.model. For a custom OpenAI-compatible provider that
+  # is "openai/<id>", so a Neuralwatt call is filed under "openai/glm-5.2" --
+  # the protocol adapter, not the vendor. Harmless while no real OPENAI_API_KEY
+  # exists, but native openai routes would then share that namespace and
+  # per-vendor spend could no longer be separated.
+  #
+  # metadata["model_group"] holds the public name ("neuralwatt/glm-5.2"), and
+  # the langfuse handler turns any metadata key listed here into a filterable
+  # "key:value" tag. The model field itself cannot be changed without patching
+  # litellm.
+  langfuse_default_tags: ["model_group"]
   # <<< requires LANGFUSE_ENABLED
