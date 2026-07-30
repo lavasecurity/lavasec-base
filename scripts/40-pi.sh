@@ -41,7 +41,9 @@ install -m 644 "${REPO_DIR}/config/pi/lava-gateway.ts" "${EXT_DIR}/lava-gateway.
 # provider-agnostic: any lava-gateway row proves the extension registered;
 # which SPECIFIC model works is the round-trip check's job below
 pi_models=$(LITELLM_MASTER_KEY="$(cat "${KEY_FILE}")" pi --list-models 2>&1) || true
-if ! printf '%s\n' "${pi_models}" | grep -q "lava-gateway"; then
+# here-string, NOT a pipe: `printf | grep -q` returns 141 under pipefail
+# once output is large enough that printf is still writing when grep exits
+if ! grep -q "lava-gateway" <<< "${pi_models}"; then
   echo "40-pi: no lava-gateway models visible in pi --list-models:" >&2
   printf '%s\n' "${pi_models}" | tail -5 >&2
   exit 1
@@ -79,7 +81,7 @@ fi
 # the sentinel, so output alone could false-pass on an echoed error
 if reply=$(LITELLM_MASTER_KEY="$(cat "${KEY_FILE}")" pi --provider lava-gateway \
       --model "${PI_CHECK_MODEL}" --no-session -p "Reply with exactly: LAVA-GATEWAY-OK" 2>&1) \
-    && printf '%s' "${reply}" | grep -q "LAVA-GATEWAY-OK"; then
+    && grep -q "LAVA-GATEWAY-OK" <<< "${reply}"; then
   echo "40-pi: OK (pi installed, ${PI_CHECK_MODEL} round-trip verified)"
 else
   echo "40-pi: round-trip via ${PI_CHECK_MODEL} FAILED:" >&2
