@@ -173,12 +173,33 @@ jobs:
             echo "gateway bound beyond loopback" >&2; ss -tln >&2; exit 1
           fi
 
-          # Same non-argv discipline the scripts use.
+          # Same non-argv discipline the scripts use. Content-Type belongs here
+          # too: without it curl sends --data-binary as form-urlencoded and the
+          # gateway 400s the completion below.
           cfg="$(mktemp)"; chmod 600 "${cfg}"
           cat > "${cfg}" <<EOF
           header = "Authorization: Bearer $(cat "${CI_DIR}/master.key")"
+          header = "Content-Type: application/json"
           EOF
-          models="$(curl -fsS --max-time 20 -K "${cfg}" http://127.0.0.1:4000/v1/models)"
+
+          # Named requests: a bare `curl -f` exit 22 doesn't say WHICH call
+          # failed or why, which cost a round here.
+          req() {
+            local label="$1" out code
+            shift
+            out="$(mktemp)"
+            code="$(curl -sS -o "${out}" -w '%{http_code}' --max-time 30 -K "${cfg}" "$@")"
+            if [ "${code}" != "200" ]; then
+              echo "${label} -> HTTP ${code}" >&2
+              head -c 500 "${out}" >&2; echo >&2
+              rm -f "${out}"
+              return 1
+            fi
+            cat "${out}"
+            rm -f "${out}"
+          }
+
+          models="$(req '/v1/models' http://127.0.0.1:4000/v1/models)"
 
           # Exact count: catches routes silently dropped or duplicated by the
           # catalog sync. Only the mock provider is keyed, so the gateway must
@@ -196,7 +217,7 @@ jobs:
           model="$(printf '%s' "${models}" | jq -r '[.data[].id | select(startswith("ollama/"))][0]')"
           body="$(mktemp)"
           jq -n --arg m "${model}" '{model: $m, messages: [{role: "user", content: "E2E-GATEWAY-OK"}]}' > "${body}"
-          reply="$(curl -fsS --max-time 30 -K "${cfg}" -X POST \
+          reply="$(req '/v1/chat/completions' -X POST \
             --data-binary "@${body}" http://127.0.0.1:4000/v1/chat/completions)"
           rm -f "${cfg}" "${body}"
           grep -q "E2E-GATEWAY-OK" <<< "${reply}" \
