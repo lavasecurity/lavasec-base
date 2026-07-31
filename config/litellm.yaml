@@ -63,8 +63,8 @@ litellm_settings:
   # Revert path is this pair back to ["langfuse"]; the SDK is kept
   # installed for exactly that (see 30-gateway.sh).
   # >>> requires LANGFUSE_ENABLED
-  success_callback: ["langfuse_otel"]
-  failure_callback: ["langfuse_otel"]
+  success_callback: ["langfuse"]
+  failure_callback: ["langfuse"]
   # Tag every trace with the model_name the CALLER asked for.
   #
   # Langfuse's "model" field is the dispatch string, not the alias: litellm's

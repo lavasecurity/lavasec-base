@@ -99,6 +99,22 @@ EOF
     } >&2
     exit 1
   fi
+  # Does the config actually ask for langfuse_otel? Everything below that
+  # concerns the OTEL path is gated on this. The v4 cutover is PARKED (see
+  # dags and the plan: 1.95.0rc1 cannot start), so the callback above is
+  # `langfuse` and this branch has to stay deployable on 1.94.x — an
+  # unconditional guard would refuse every install.
+  #
+  # Gated on the template rather than a separate flag so the two cannot drift:
+  # flipping the callback to langfuse_otel arms the install and the guard in
+  # the same edit, and flipping it back disarms them.
+  wants_otel=""
+  if grep -qE '^[[:space:]]*(success_callback|failure_callback|callbacks):.*langfuse_otel' \
+      "${REPO_DIR}/config/litellm.yaml"; then
+    wants_otel=1
+  fi
+
+  if [ -n "${wants_otel}" ]; then
   # OTEL stack for the langfuse_otel callback. litellm[proxy] does NOT
   # carry it: these live in litellm's separate "proxy-runtime" extra,
   # which we don't install wholesale (it also drags in vertex, ddtrace,
@@ -110,6 +126,7 @@ EOF
     "opentelemetry-sdk==1.28.0" \
     "opentelemetry-exporter-otlp==1.28.0" \
     "opentelemetry-instrumentation-fastapi==0.49b0"
+  fi
 
   # The langfuse SDK is CUTOVER SCAFFOLDING, not a dependency of tracing.
   # langfuse_otel speaks OTLP directly and imports no langfuse package at
@@ -144,6 +161,7 @@ EOF
   # and too old) and the interpreter's own error is surfaced. Failing
   # loudly on a moved symbol is the safe direction; failing loudly while
   # blaming the wrong cause is not.
+  if [ -n "${wants_otel}" ]; then
   probe_err=""
   probe_rc=0
   probe_err="$(sudo /opt/lavasec/venv/bin/python -c 'import sys
@@ -174,6 +192,9 @@ if v != "4":
     exit 1
   fi
   echo "30-gateway: langfuse tracing enabled via langfuse_otel (v4 ingestion verified, credentials verified)"
+  else
+    echo "30-gateway: langfuse tracing enabled (legacy callback; v4 cutover parked)"
+  fi
 elif sudo sh -c ". ${ENV_FILE} && [ -n \"\${LANGFUSE_PUBLIC_KEY:-}\${LANGFUSE_SECRET_KEY:-}\${LANGFUSE_HOST:-}\" ]"; then
   echo "30-gateway: langfuse partially configured — tracing OFF (needs LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_HOST)" >&2
 fi
