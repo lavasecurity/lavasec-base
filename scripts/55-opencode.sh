@@ -103,17 +103,56 @@ EOF
   return ${rc}
 }
 
+# Reasoning-effort variants: opencode renders an effort selector (and T3
+# Code its effort toggle) ONLY from `variants` in this config — for
+# config-defined models it derives nothing from models.dev or the gateway.
+# Source exact per-model effort values from opencode's models.dev cache
+# (the same reasoning_options derivation opencode itself applies to its
+# built-in providers); fall back to the generic low/medium/high set when
+# the gateway's /model/info only says supports_reasoning. No enumerable
+# metadata exists for speed tiers or temperature values (models.dev has
+# none; litellm's per-effort flags are unset and its service_tier entry in
+# supported_openai_params is a generic openai-route default, not per-model
+# truth), so no other variant kinds are generated.
+# (--slurpfile, not --argjson: the cache is multi-MB, over the 128 KiB
+# single-argv limit; missing/unreadable cache degrades to an empty db)
+md_cache="${HOME}/.cache/opencode/models.json"
+md_slurp=/dev/null   # slurping /dev/null yields [] — the empty-db case
+if jq -e 'type == "object"' "${md_cache}" >/dev/null 2>&1; then
+  md_slurp="${md_cache}"
+fi
+
 models_json="$(gw_get /model/info 2>/dev/null \
-  | jq '[.data[]
+  | jq --slurpfile md "${md_slurp}" '
+      def mddb: ($md[0] // {});
+      def mdentry($name):
+        ($name | split("/")) as $seg
+        | (if ($seg | length) > 1 then
+            ($seg[0]) as $h | ($seg[1:] | join("/")) as $t
+            | (mddb[$h].models[$t]
+              // (if $h == "ollama" then mddb["ollama-cloud"].models[$t] else null end))
+          else null end)
+          // ([ mddb | to_entries[] | .value.models[$name] // empty ] | first)
+          // null;
+      [.data[]
         | select((.model_info.mode // "chat") == "chat")
         | select(.model_name | contains("*") | not)]
         | unique_by(.model_name)
-        | map({ (.model_name): {
-            name: (.model_name + " (gateway)"),
-            limit: {
-              context: (.model_info.max_input_tokens // 128000),
-              output: (.model_info.max_output_tokens // 8192)
-            } } })
+        | map(. as $m
+          | (mdentry($m.model_name)) as $e
+          | ([$e.reasoning_options[]? | select(.type == "effort") | .values[]?]) as $exact
+          | (if ($exact | length) > 0 then $exact
+             elif ($m.model_info.supports_reasoning // false) then ["low", "medium", "high"]
+             else [] end) as $efforts
+          | { ($m.model_name): ({
+                name: (.model_name + " (gateway)"),
+                limit: {
+                  context: ($m.model_info.max_input_tokens // 128000),
+                  output: ($m.model_info.max_output_tokens // 8192)
+                } }
+              + (if ($efforts | length) > 0 then
+                   { variants: (reduce $efforts[] as $v ({}; .[$v] = { reasoningEffort: $v })) }
+                 else {} end)) })
         | add // {}' 2>/dev/null || echo '{}')"
 
 fallback_for() {  # provider -> one representative model id
