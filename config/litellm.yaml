@@ -101,3 +101,20 @@ litellm_settings:
   # harmless when absent (a key not in metadata simply produces no tag).
   langfuse_default_tags: ["model_group", "agent", "flow", "module"]
   # <<< requires LANGFUSE_ENABLED
+  # Optional local sink, off unless GENERIC_LOGGER_ENDPOINT is set. Posts a
+  # StandardLoggingPayload per call to that URL — see scripts/35-eval-receiver.sh
+  # for a loopback receiver, or point it at anything that accepts JSON.
+  #
+  # `callbacks`, NOT success_callback: the proxy REBUILDS litellm.success_callback
+  # when it sees that key (proxy_server.py ~4578), so a second block emitting it
+  # would fight the langfuse one above. `callbacks` registers additively through
+  # initialize_callbacks_on_proxy, so the two are independent.
+  #
+  # Ordered after the langfuse block deliberately, since the reset above happens
+  # when success_callback is processed.
+  #
+  # generic_api RAISES if GENERIC_LOGGER_ENDPOINT is unset. Gating the block on
+  # that same key is what makes that impossible rather than merely documented.
+  # >>> requires GENERIC_LOGGER_ENDPOINT
+  callbacks: ["generic_api"]
+  # <<< requires GENERIC_LOGGER_ENDPOINT
