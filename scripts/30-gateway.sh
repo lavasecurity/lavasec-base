@@ -3,10 +3,43 @@ set -euo pipefail
 # LiteLLM gateway: venv under /opt/lavasec, config + systemd unit installed,
 # service enabled, loopback-only bind verified, /v1/models smoke-tested.
 # Requires /etc/lavasec/lavasec.env (root:root 600) — see env/example.env.
-# Optional: LITELLM_VERSION=x.y.z to pin the litellm release.
+# Optional: LITELLM_VERSION=x.y.z to override the pinned litellm release.
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE=/etc/lavasec/lavasec.env
+
+# This branch needs the 1.95.0 line: only it emits Langfuse's v4 ingestion
+# header, which the langfuse_otel callback in litellm.yaml depends on. But
+# 1.95.0rc1 CANNOT RUN. Its management_v1 module imports fastapi's
+# get_flat_dependant while declaring only fastapi>=0.136.3,<1.0, and fastapi
+# deleted that symbol in 0.140.7 (present in 0.140.6, gone from 0.140.7 on).
+# Any current fastapi therefore kills the proxy at import:
+#   ImportError: cannot import name 'get_flat_dependant'
+#     from 'fastapi.dependencies.utils'
+# Constraining fastapi back to 0.140.6 would "fix" it, but that version was
+# superseded by 13 patches inside two days — pinning into the middle of an
+# upstream fix cycle to accommodate a release candidate is the worse trade.
+#
+# Sitting BELOW the breakage does work: the v4 header landed 2026-07-19 and
+# management_v1 arrived between 07-24 and 07-29, so 1.95.0.dev2 has the
+# header without the bad import, and e2e went green on it against current
+# fastapi 0.141.1 (litellm=1.95.0.dev2 fastapi=0.141.1, 800 models served).
+# That proves the approach; it is not pinned here because shipping a dev
+# build to the gateway to chase an evaluator feature is not a trade worth
+# making while the release line is visibly unsettled.
+#
+# PARKED until litellm 1.95.0 STABLE. On revisit, check in this order:
+#   1. does litellm/proxy/management_endpoints/management_v1/common.py still
+#      import get_flat_dependant? if so the release is still broken against
+#      any fastapi >= 0.140.7 regardless of version number
+#   2. does litellm/integrations/langfuse/langfuse_otel.py still define
+#      LANGFUSE_INGESTION_VERSION = "4"? the guard below probes exactly this
+#   3. is the legacy langfuse callback still SDK v2? litellm PR #33391 would
+#      change that and make this whole OTEL migration unnecessary
+#
+# Until then the default install is latest-stable, which cannot emit v4, so
+# the capability guard below fails by design. That red is this branch
+# reporting its blocker, not a regression. LITELLM_VERSION still overrides.
 
 # --- preflight: env file present, locked down, master key real ---
 if [ ! -f "${ENV_FILE}" ]; then
@@ -32,12 +65,16 @@ if [ ! -x /opt/lavasec/venv/bin/pip ]; then
   sudo python3 -m venv /opt/lavasec/venv
 fi
 sudo /opt/lavasec/venv/bin/pip install -q --upgrade pip "litellm[proxy]${LITELLM_VERSION:+==${LITELLM_VERSION}}"
+# Report what actually landed. `pip -q` hides resolution entirely, so when
+# the proxy failed to import there was no way to tell which versions were
+# involved without a second trip to the box.
+echo "30-gateway: litellm=$(/opt/lavasec/venv/bin/pip show litellm 2>/dev/null | awk '/^Version:/{print $2}') fastapi=$(/opt/lavasec/venv/bin/pip show fastapi 2>/dev/null | awk '/^Version:/{print $2}')"
 
-# langfuse SDK only when tracing is configured — keeps the venv lean
+# tracing deps only when tracing is configured — keeps the venv lean
 # otherwise (the callback in litellm.yaml renders under the same key)
-# Tracing is all-or-nothing: a rendered callback without the SDK (or
+# Tracing is all-or-nothing: a rendered callback without its deps (or
 # without every var) makes litellm 500 on EVERY request. This single
-# condition drives both the SDK install and the config render below.
+# condition drives both the dep install and the config render below.
 # shellcheck disable=SC2016  # intentionally unexpanded: evaluated inside
 # the sudo subshell after the env file is sourced
 LANGFUSE_TEST='[ -n "${LANGFUSE_PUBLIC_KEY:-}" ] && [ -n "${LANGFUSE_SECRET_KEY:-}" ] && [ -n "${LANGFUSE_HOST:-}" ]'
@@ -62,11 +99,81 @@ EOF
     } >&2
     exit 1
   fi
-  # pin <3: litellm's integration reads langfuse.version.__version__,
-  # which the v3+ SDK moved (AttributeError on EVERY traced request).
-  # Override with LANGFUSE_PIN when litellm gains v3 support.
+  # OTEL stack for the langfuse_otel callback. litellm[proxy] does NOT
+  # carry it: these live in litellm's separate "proxy-runtime" extra,
+  # which we don't install wholesale (it also drags in vertex, ddtrace,
+  # sentry, mangum — against the lean-venv rule above). Versions mirror
+  # that extra exactly so the opentelemetry packages move in lockstep
+  # with what litellm actually tests against.
+  sudo /opt/lavasec/venv/bin/pip install -q \
+    "opentelemetry-api==1.28.0" \
+    "opentelemetry-sdk==1.28.0" \
+    "opentelemetry-exporter-otlp==1.28.0" \
+    "opentelemetry-instrumentation-fastapi==0.49b0"
+
+  # The langfuse SDK is CUTOVER SCAFFOLDING, not a dependency of tracing.
+  # langfuse_otel speaks OTLP directly and imports no langfuse package at
+  # all; only the legacy "langfuse" callback uses the SDK, and it imports
+  # it lazily (inside functions, not at module load). It is kept solely so
+  # reverting litellm.yaml to success_callback: ["langfuse"] works without
+  # a pip install under incident pressure — a missing SDK would not fail
+  # at startup, it would fail on every traced request.
+  #
+  # pin <3 because litellm itself declares langfuse>=2.59.7,<3.0, and the
+  # legacy handler reads langfuse.version.__version__, which the v3+ SDK
+  # moved (AttributeError on EVERY traced request).
+  #
+  # FOLLOW-UP: drop this install once the OTEL cutover is confirmed
+  # stable. Doing so also removes a latent break — litellm PR #33391
+  # raises its own requirement to langfuse>=4.7,<5, at which point this
+  # line would silently downgrade the SDK and break the install.
   sudo /opt/lavasec/venv/bin/pip install -q "${LANGFUSE_PIN:-langfuse<3}"
-  echo "30-gateway: langfuse tracing enabled ($(/opt/lavasec/venv/bin/pip show langfuse 2>/dev/null | awk '/^Version:/{print $2}'), credentials verified)"
+
+  # Refuse rather than degrade: langfuse_otel only reaches Langfuse's v4
+  # ingestion path when it sends x-langfuse-ingestion-version: 4, and that
+  # header is absent from the entire 1.94.x line (present from 1.95.0 —
+  # earliest RC-grade build 1.95.0rc1). Without it spans still arrive and
+  # dashboards still look healthy, but they ingest the OLD way and
+  # observation-level evaluators silently never run.
+  #
+  # Probing the constant beats parsing "1.95.0rc1" — version strings are a
+  # proxy for the capability, this is the capability. It does NOT survive
+  # the module being moved: litellm PR #33391 touches this file, and if it
+  # relocates the constant the import breaks. That is why the two failure
+  # modes are distinguished below (exit 2 = cannot probe, exit 1 = probed
+  # and too old) and the interpreter's own error is surfaced. Failing
+  # loudly on a moved symbol is the safe direction; failing loudly while
+  # blaming the wrong cause is not.
+  probe_err=""
+  probe_rc=0
+  probe_err="$(sudo /opt/lavasec/venv/bin/python -c 'import sys
+try:
+    from litellm.integrations.langfuse.langfuse_otel import LANGFUSE_INGESTION_VERSION as v
+except Exception as exc:  # ImportError, but also a broken venv or moved symbol
+    print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
+    sys.exit(2)
+if v != "4":
+    print(f"LANGFUSE_INGESTION_VERSION is {v!r}, expected \"4\"", file=sys.stderr)
+    sys.exit(1)' 2>&1)" || probe_rc=$?
+  if [ "${probe_rc}" -ne 0 ]; then
+    {
+      if [ "${probe_rc}" -eq 2 ]; then
+        echo "30-gateway: cannot verify Langfuse v4 ingestion support"
+        echo "  The probe could not read LANGFUSE_INGESTION_VERSION at all. Either the"
+        echo "  venv is broken, or litellm moved the symbol (PR #33391 touches this"
+        echo "  file) — in which case this guard needs its import path updated."
+      else
+        echo "30-gateway: installed litellm cannot emit Langfuse v4 ingestion"
+        echo "  litellm.yaml routes tracing through the langfuse_otel callback, but this"
+        echo "  build does not send x-langfuse-ingestion-version: 4 — traces would ingest"
+        echo "  via the old path and observation-level evaluators would never run."
+        echo "  Install a 1.95.0+ build, e.g. LITELLM_VERSION=1.95.0rc1, and re-run."
+      fi
+      echo "  python: ${probe_err}"
+    } >&2
+    exit 1
+  fi
+  echo "30-gateway: langfuse tracing enabled via langfuse_otel (v4 ingestion verified, credentials verified)"
 elif sudo sh -c ". ${ENV_FILE} && [ -n \"\${LANGFUSE_PUBLIC_KEY:-}\${LANGFUSE_SECRET_KEY:-}\${LANGFUSE_HOST:-}\" ]"; then
   echo "30-gateway: langfuse partially configured — tracing OFF (needs LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY and LANGFUSE_HOST)" >&2
 fi
@@ -241,7 +348,11 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 if [ -z "${up}" ]; then
-  echo "gateway did not come up — check: journalctl -u litellm -n 50" >&2
+  # Dump the journal rather than only naming it: on a CI runner nobody is
+  # there to run the follow-up command, so the actual reason was lost and
+  # every startup failure looked identical from the log.
+  echo "gateway did not come up — last 50 journal lines follow:" >&2
+  sudo journalctl -u litellm -n 50 --no-pager >&2 || true
   exit 1
 fi
 
