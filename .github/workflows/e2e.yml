@@ -184,9 +184,8 @@ jobs:
       - name: assert gateway shape
         run: |
           set -euo pipefail
-          # StateDirectory=lavasec resets ownership whenever the gateway
-          # restarts. The receiver must restart after it and restore the shared
-          # spool permissions, or the next callback gets EACCES.
+          # The evaluation spool must stay outside LiteLLM's StateDirectory;
+          # restarting the gateway must not change its ownership or mode.
           sudo systemctl restart litellm
           for _ in $(seq 1 30); do
             if curl -fsS --max-time 2 http://127.0.0.1:4000/health/liveliness >/dev/null 2>&1 \
@@ -197,8 +196,9 @@ jobs:
             sleep 1
           done
           [ -n "${restarted:-}" ] || { echo "gateway/receiver restart failed" >&2; exit 1; }
-          [ "$(stat -c %U /var/lib/lavasec/eval-spool.jsonl)" = "$(id -un)" ] \
-            || { echo "gateway restart took ownership of the evaluation spool" >&2; exit 1; }
+          expected_state="$(id -un):$(id -gn):750"
+          [ "$(stat -c %U:%G:%a /var/lib/lavasec-eval)" = "${expected_state}" ] \
+            || { echo "gateway restart changed evaluation spool permissions" >&2; exit 1; }
 
           # Independent of the script's own checks: loopback only, never wildcard.
           ss -tln | grep -q '127\.0\.0\.1:4000' \

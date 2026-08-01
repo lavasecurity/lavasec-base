@@ -11,7 +11,7 @@ fi
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE=/etc/lavasec/lavasec.env
-SPOOL_DIR="${LAVASEC_EVAL_SPOOL_DIR:-/var/lib/lavasec}"
+SPOOL_DIR="${LAVASEC_EVAL_SPOOL_DIR:-/var/lib/lavasec-eval}"
 SPOOL="${SPOOL_DIR}/eval-spool.jsonl"
 PORT="${LAVASEC_EVAL_RECEIVER_PORT:-4010}"
 UNIT=/etc/systemd/system/lavasec-eval-receiver.service
@@ -25,10 +25,10 @@ if ! sudo sh -c ". ${ENV_FILE} && [ -n \"\${GENERIC_LOGGER_ENDPOINT:-}\" ]"; the
   exit 0
 fi
 
-# /var/lib/lavasec is LiteLLM's home, so keep lavasec as owner. The sticky bit
-# lets the Dagu user rotate its own spool without allowing it to delete files
-# owned by the gateway account.
-sudo install -d -m 1770 -o lavasec -g "${SERVICE_GROUP}" "${SPOOL_DIR}"
+# Keep prompt-bearing state outside LiteLLM's StateDirectory. systemd resets
+# /var/lib/lavasec ownership whenever the gateway starts; an independent path
+# leaves the receiver and Dagu queue untouched by gateway restarts.
+sudo install -d -m 750 -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" "${SPOOL_DIR}"
 if ! sudo test -e "${SPOOL}"; then
   sudo install -m 600 -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" /dev/null "${SPOOL}"
 fi
@@ -45,9 +45,7 @@ sudo install -m 644 -o root -g root \
 sudo tee "${UNIT}" >/dev/null <<UNITFILE
 [Unit]
 Description=LavaSec evaluation callback receiver
-After=network-online.target litellm.service
-Wants=litellm.service
-PartOf=litellm.service
+After=network-online.target
 
 [Service]
 User=${SERVICE_USER}
@@ -57,13 +55,6 @@ EnvironmentFile=-/etc/lavasec/agent.env
 Environment=LAVASEC_EVAL_SPOOL=${SPOOL}
 Environment=LAVASEC_EVAL_RECEIVER_PORT=${PORT}
 Environment=LAVASEC_EVAL_RECEIVER_BIND=127.0.0.1
-# LiteLLM's StateDirectory resets this tree to lavasec:lavasec on every
-# gateway start. These run after that reset and before the unprivileged
-# receiver, so both the callback and Dagu can keep using the shared spool.
-ExecStartPre=+/usr/bin/chown lavasec:${SERVICE_GROUP} ${SPOOL_DIR}
-ExecStartPre=+/usr/bin/chmod 1770 ${SPOOL_DIR}
-ExecStartPre=+/usr/bin/chown ${SERVICE_USER}:${SERVICE_GROUP} ${SPOOL} ${SPOOL}.lock
-ExecStartPre=+/usr/bin/chmod 600 ${SPOOL} ${SPOOL}.lock
 ExecStart=/usr/bin/python3 /etc/lavasec/eval-receiver.py
 Restart=on-failure
 RestartSec=5
