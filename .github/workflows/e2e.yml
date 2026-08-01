@@ -258,7 +258,7 @@ jobs:
             || { echo "sentinel did not round-trip: ${reply}" >&2; exit 1; }
           spooled=""
           for _ in $(seq 1 30); do
-            if grep -q "E2E-GATEWAY-OK" /var/lib/lavasec/eval-spool.jsonl 2>/dev/null; then
+            if grep -q "E2E-GATEWAY-OK" /var/lib/lavasec-eval/eval-spool.jsonl 2>/dev/null; then
               spooled=1
               break
             fi
