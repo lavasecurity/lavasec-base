@@ -102,3 +102,8 @@ litellm_settings:
   # harmless when absent (a key not in metadata simply produces no tag).
   langfuse_default_tags: ["model_group", "agent", "flow", "module"]
   # <<< requires LANGFUSE_ENABLED
+  # Local evaluation ingress. `callbacks` is additive, so Langfuse tracing
+  # above remains the source trace while this sink starts the Dagu scorers.
+  # >>> requires GENERIC_LOGGER_ENDPOINT
+  callbacks: ["generic_api"]
+  # <<< requires GENERIC_LOGGER_ENDPOINT

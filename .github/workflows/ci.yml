@@ -30,6 +30,7 @@ jobs:
           assert mk == "os.environ/LITELLM_MASTER_KEY", f"master_key misconfigured: {mk!r}"
           EOF
           grep -qE "^lavasecurity/lavasec-base$" config/repos.txt
+          python3 ci/test-eval-ingress.py
 
       - name: no credential-bearing curl options
         run: |
