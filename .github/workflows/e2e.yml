@@ -104,6 +104,7 @@ jobs:
           sudo sh -c "umask 077; cat > /etc/lavasec/lavasec.env" <<EOF
           LITELLM_MASTER_KEY=$(cat "${CI_DIR}/master.key")
           OLLAMA_API_KEY=$(cat "${CI_DIR}/mock.key")
+          GENERIC_LOGGER_ENDPOINT=http://127.0.0.1:4010/
           EOF
           sudo chown root:root /etc/lavasec/lavasec.env
           sudo chmod 600 /etc/lavasec/lavasec.env
@@ -239,6 +240,16 @@ jobs:
           rm -f "${cfg}" "${body}"
           grep -q "E2E-GATEWAY-OK" <<< "${reply}" \
             || { echo "sentinel did not round-trip: ${reply}" >&2; exit 1; }
+          spooled=""
+          for _ in $(seq 1 30); do
+            if grep -q "E2E-GATEWAY-OK" /var/lib/lavasec/eval-spool.jsonl 2>/dev/null; then
+              spooled=1
+              break
+            fi
+            sleep 0.2
+          done
+          [ -n "${spooled}" ] \
+            || { echo "completion did not reach the evaluation spool" >&2; exit 1; }
           echo "OK: ${count} models, loopback-only, sentinel round-tripped via ${model}"
 
       - name: reconciliation gate self-test
