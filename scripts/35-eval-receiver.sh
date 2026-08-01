@@ -45,7 +45,9 @@ sudo install -m 644 -o root -g root \
 sudo tee "${UNIT}" >/dev/null <<UNITFILE
 [Unit]
 Description=LavaSec evaluation callback receiver
-After=network-online.target
+After=network-online.target litellm.service
+Wants=litellm.service
+PartOf=litellm.service
 
 [Service]
 User=${SERVICE_USER}
@@ -55,6 +57,13 @@ EnvironmentFile=-/etc/lavasec/agent.env
 Environment=LAVASEC_EVAL_SPOOL=${SPOOL}
 Environment=LAVASEC_EVAL_RECEIVER_PORT=${PORT}
 Environment=LAVASEC_EVAL_RECEIVER_BIND=127.0.0.1
+# LiteLLM's StateDirectory resets this tree to lavasec:lavasec on every
+# gateway start. These run after that reset and before the unprivileged
+# receiver, so both the callback and Dagu can keep using the shared spool.
+ExecStartPre=+/usr/bin/chown lavasec:${SERVICE_GROUP} ${SPOOL_DIR}
+ExecStartPre=+/usr/bin/chmod 1770 ${SPOOL_DIR}
+ExecStartPre=+/usr/bin/chown ${SERVICE_USER}:${SERVICE_GROUP} ${SPOOL} ${SPOOL}.lock
+ExecStartPre=+/usr/bin/chmod 600 ${SPOOL} ${SPOOL}.lock
 ExecStart=/usr/bin/python3 /etc/lavasec/eval-receiver.py
 Restart=on-failure
 RestartSec=5
