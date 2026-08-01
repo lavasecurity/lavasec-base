@@ -95,7 +95,8 @@ printf '%s\n' "${rendered_content}" > "${rendered}"
 #     openai client made OpenRouter report the caller as "unknown").
 #   custom -> OpenAI-compatible endpoint litellm has no provider for:
 #     route as "openai/<id>" + api_base.
-PROVIDER_CATALOGS="opencode|https://opencode.ai/zen/v1|OPENCODE_API_KEY|custom
+PROVIDER_CATALOGS="opencode-go|https://opencode.ai/zen/go/v1|OPENCODE_API_KEY|custom
+opencode-zen|https://opencode.ai/zen/v1|OPENCODE_API_KEY|custom
 neuralwatt|https://api.neuralwatt.com/v1|NEURALWATT_API_KEY|custom
 openrouter|https://openrouter.ai/api/v1|OPENROUTER_API_KEY|native
 deepseek|https://api.deepseek.com/v1|DEEPSEEK_API_KEY|native
@@ -267,3 +268,14 @@ if [ "${model_count}" -eq 0 ]; then
 fi
 printf '%s' "${models}" | jq -r '.data[0:5][].id' | sed 's/^/  model: /'
 echo "30-gateway: OK (${model_count} models, $(/opt/lavasec/venv/bin/litellm --version 2>/dev/null || true))"
+
+# Structural provider changes (e.g. opencode/* renamed to opencode-zen/* +
+# opencode-go/*) invalidate the model ids pi and opencode persist from a
+# previous run: ~/.bashrc (default model) and ~/.config/opencode/opencode.json.
+# Those are rewritten by their own bootstrap slices, which this refresh path
+# does NOT run — so warn the operator instead of leaving stale clients.
+if grep -q 'opencode-zen\|opencode-go' /opt/lavasec/litellm.yaml; then
+  echo "30-gateway: NOTE — opencode routes changed. If this box already had an" >&2
+  echo "OpenCode install, re-run scripts/40-pi.sh and scripts/55-opencode.sh to" >&2
+  echo "refresh pi's default model (.bashrc) and opencode.json model list." >&2
+fi

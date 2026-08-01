@@ -75,7 +75,7 @@ configured="$(sudo sh -c ". ${ENV_FILE} && \
     [ -n \"\${NEURALWATT_API_KEY:-}\" ] && echo neuralwatt; \
     [ -n \"\${ANTHROPIC_API_KEY:-}\" ]  && echo anthropic; \
     [ -n \"\${OPENAI_API_KEY:-}\" ]     && echo openai; \
-    [ -n \"\${OPENCODE_API_KEY:-}\" ]   && echo opencode; \
+    [ -n \"\${OPENCODE_API_KEY:-}\" ]   && echo opencode-zen opencode-go; \
     [ -n \"\${OLLAMA_API_KEY:-}\" ]     && echo ollama; :; }")"
 if [ -z "${configured}" ]; then
   echo "55-opencode: no provider key in ${ENV_FILE} — add one and re-run" >&2
@@ -162,7 +162,8 @@ fallback_for() {  # provider -> one representative model id
     neuralwatt) echo "neuralwatt/qwen3.6-35b" ;;
     anthropic)  echo "anthropic/claude-haiku-4-5" ;;
     openai)     echo "openai/gpt-4o-mini" ;;
-    opencode)   echo "opencode/gpt-5.5" ;;
+    opencode-go)  echo "opencode-go/deepseek-v4-flash" ;;
+    opencode-zen) echo "opencode-zen/claude-haiku-4-5" ;;
     ollama)     printf '%s' "${models_json}" | jq -r '[keys[] | select(startswith("ollama/"))][0] // empty' ;;
   esac
 }
@@ -176,12 +177,19 @@ if [ "$(printf '%s' "${models_json}" | jq 'length')" -eq 0 ]; then
 fi
 
 # round-trip model: first configured provider that the catalog actually
-# offers (keeps the check aligned with this box's keys)
+# offers (keeps the check aligned with this box's keys). OpenCode shares one
+# key across two independently entitled plans — pick the PAYG/Zen route first,
+# keeping the Go route as a fallback so a Go-only account still round-trips.
 check_model=""
+check_fallback=""
 for provider in ${configured}; do
   id="$(fallback_for "${provider}")"
   if [ "$(printf '%s' "${models_json}" | jq --arg id "${id}" 'has($id)')" = "true" ]; then
     check_model="${id}"
+    case "${provider}" in
+      opencode-zen) check_fallback="opencode-go/deepseek-v4-flash" ;;
+      opencode-go)  check_fallback="opencode-zen/claude-haiku-4-5" ;;
+    esac
     break
   fi
 done
@@ -189,6 +197,12 @@ if [ -z "${check_model}" ]; then
   check_model="$(printf '%s' "${models_json}" | jq -r 'keys[0] // empty')"
 fi
 CHECK_MODEL="${OC_CHECK_MODEL:-${check_model}}"
+# an explicit OC_CHECK_MODEL disables auto-fallback to another model
+if [ -n "${OC_CHECK_MODEL:-}" ]; then
+  CHECK_FALLBACK_MODEL=""
+else
+  CHECK_FALLBACK_MODEL="${check_fallback}"
+fi
 if [ -z "${CHECK_MODEL}" ]; then
   echo "55-opencode: no usable model in the gateway catalog — check scripts/30-gateway.sh" >&2
   exit 1
@@ -231,24 +245,27 @@ jq -n --slurpfile models "${models_file}" '{
 # output alone could false-pass on an echoed error). One retry: the very
 # first run after a config change can hang on opencode's server spawn
 # (observed once — 120s of silence, then killed), and heals immediately.
-oc_roundtrip() {
-  LITELLM_MASTER_KEY="$(cat "${KEY_FILE}")" timeout 120 opencode run \
-    --model "lava-gateway/${CHECK_MODEL}" \
-    "Reply with exactly: OC-GATEWAY-OK" 2>&1 < /dev/null
-}
 ok=""
-for attempt in 1 2; do
-  if reply=$(oc_roundtrip) && grep -q "OC-GATEWAY-OK" <<< "${reply}"; then
-    ok=1
-    break
-  fi
-  if [ "${attempt}" = 1 ]; then
-    echo "55-opencode: round-trip attempt 1 failed — retrying once" >&2
-    sleep 5
-  fi
+reply=""
+for m in "${CHECK_MODEL}" ${CHECK_FALLBACK_MODEL:+${CHECK_FALLBACK_MODEL}}; do
+  [ -n "${m}" ] || continue
+  for attempt in 1 2; do
+    if reply=$(LITELLM_MASTER_KEY="$(cat "${KEY_FILE}")" timeout 120 opencode run \
+          --model "lava-gateway/${m}" \
+          "Reply with exactly: OC-GATEWAY-OK" 2>&1 < /dev/null) && grep -q "OC-GATEWAY-OK" <<< "${reply}"; then
+      CHECK_MODEL="${m}"
+      ok=1
+      break
+    fi
+    if [ "${attempt}" = 1 ]; then
+      echo "55-opencode: round-trip via ${m} failed — retrying once" >&2
+      sleep 5
+    fi
+  done
+  [ -n "${ok}" ] && break
 done
 if [ -z "${ok}" ]; then
-  echo "55-opencode: round-trip via ${CHECK_MODEL} FAILED after retry:" >&2
+  echo "55-opencode: round-trip FAILED after retry:" >&2
   printf '%s\n' "${reply}" | tail -5 >&2
   exit 1
 fi

@@ -67,7 +67,14 @@ if [ -z "${PI_CHECK_MODEL:-}" ]; then
     elif [ -n \"\${NEURALWATT_API_KEY:-}\" ]; then echo neuralwatt/qwen3.6-35b; \
     elif [ -n \"\${ANTHROPIC_API_KEY:-}\" ];  then echo anthropic/claude-haiku-4-5; \
     elif [ -n \"\${OPENAI_API_KEY:-}\" ];     then echo openai/gpt-4o-mini; \
-    elif [ -n \"\${OPENCODE_API_KEY:-}\" ];   then echo opencode/gpt-5.5; fi")"
+    elif [ -n \"\${OPENCODE_API_KEY:-}\" ];   then echo opencode-zen/claude-haiku-4-5; fi")"
+  # OpenCode exposes two independently entitled plans. Prefer the PAYG/Zen
+  # route; if that workspace lacks Zen billing, fall back to the Go plan so
+  # a Go-only account still passes the required round-trip. Only relevant
+  # when the opencode key actually drove the selection.
+  if [[ "${PI_CHECK_MODEL}" == opencode-zen/* ]]; then
+    PI_FALLBACK_MODEL="$(sudo sh -c ". ${ENV_FILE} && echo opencode-go/deepseek-v4-flash")"
+  fi
   # Ollama Cloud publishes no fixed ids we can assume — take the first one
   # the gateway actually routes
   if [ -z "${PI_CHECK_MODEL}" ] && sudo sh -c ". ${ENV_FILE} && [ -n \"\${OLLAMA_API_KEY:-}\" ]"; then
@@ -85,13 +92,26 @@ if [ -z "${PI_CHECK_MODEL}" ]; then
   exit 1
 fi
 # success = pi exits 0 AND the sentinel appears — the prompt itself contains
-# the sentinel, so output alone could false-pass on an echoed error
-if reply=$(LITELLM_MASTER_KEY="$(cat "${KEY_FILE}")" pi --provider lava-gateway \
-      --model "${PI_CHECK_MODEL}" --no-session -p "Reply with exactly: LAVA-GATEWAY-OK" 2>&1) \
-    && grep -q "LAVA-GATEWAY-OK" <<< "${reply}"; then
+# the sentinel, so output alone could false-pass on an echoed error.
+# Candidates: primary PI_CHECK_MODEL then PI_FALLBACK_MODEL (the OpenCode
+# Zen/Go pairing); the first that completes wins and becomes the default.
+ok=""
+tried=""
+for m in "${PI_CHECK_MODEL}" ${PI_FALLBACK_MODEL:-}; do
+  [ -n "${m}" ] || continue
+  tried="${tried:+${tried} }${m}"
+  if reply=$(LITELLM_MASTER_KEY="$(cat "${KEY_FILE}")" pi --provider lava-gateway \
+        --model "${m}" --no-session -p "Reply with exactly: LAVA-GATEWAY-OK" 2>&1) \
+      && grep -q "LAVA-GATEWAY-OK" <<< "${reply}"; then
+    PI_CHECK_MODEL="${m}"
+    ok=1
+    break
+  fi
+done
+if [ -n "${ok}" ]; then
   echo "40-pi: OK (pi installed, ${PI_CHECK_MODEL} round-trip verified)"
 else
-  echo "40-pi: round-trip via ${PI_CHECK_MODEL} FAILED:" >&2
+  echo "40-pi: round-trip failed on all candidates (${tried}):" >&2
   printf '%s\n' "${reply}" | tail -5 >&2
   exit 1
 fi
