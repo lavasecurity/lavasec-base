@@ -11,7 +11,7 @@ fi
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE=/etc/lavasec/lavasec.env
-SPOOL_DIR="${LAVASEC_EVAL_SPOOL_DIR:-/var/lib/lavasec}"
+SPOOL_DIR="${LAVASEC_EVAL_SPOOL_DIR:-/var/lib/lavasec-eval}"
 SPOOL="${SPOOL_DIR}/eval-spool.jsonl"
 PORT="${LAVASEC_EVAL_RECEIVER_PORT:-4010}"
 UNIT=/etc/systemd/system/lavasec-eval-receiver.service
@@ -25,10 +25,10 @@ if ! sudo sh -c ". ${ENV_FILE} && [ -n \"\${GENERIC_LOGGER_ENDPOINT:-}\" ]"; the
   exit 0
 fi
 
-# /var/lib/lavasec is LiteLLM's home, so keep lavasec as owner. The sticky bit
-# lets the Dagu user rotate its own spool without allowing it to delete files
-# owned by the gateway account.
-sudo install -d -m 1770 -o lavasec -g "${SERVICE_GROUP}" "${SPOOL_DIR}"
+# Keep prompt-bearing state outside LiteLLM's StateDirectory. systemd resets
+# /var/lib/lavasec ownership whenever the gateway starts; an independent path
+# leaves the receiver and Dagu queue untouched by gateway restarts.
+sudo install -d -m 750 -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" "${SPOOL_DIR}"
 if ! sudo test -e "${SPOOL}"; then
   sudo install -m 600 -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" /dev/null "${SPOOL}"
 fi

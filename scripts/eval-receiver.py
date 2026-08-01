@@ -10,7 +10,9 @@ import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
-SPOOL = os.environ.get("LAVASEC_EVAL_SPOOL", "/var/lib/lavasec/eval-spool.jsonl")
+SPOOL = os.environ.get(
+    "LAVASEC_EVAL_SPOOL", "/var/lib/lavasec-eval/eval-spool.jsonl"
+)
 BIND = os.environ.get("LAVASEC_EVAL_RECEIVER_BIND", "127.0.0.1")
 PORT = int(os.environ.get("LAVASEC_EVAL_RECEIVER_PORT", "4010"))
 DAGU_BIN = os.environ.get("DAGU_BIN", "/usr/local/bin/dagu")

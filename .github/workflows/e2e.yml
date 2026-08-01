@@ -184,6 +184,22 @@ jobs:
       - name: assert gateway shape
         run: |
           set -euo pipefail
+          # The evaluation spool must stay outside LiteLLM's StateDirectory;
+          # restarting the gateway must not change its ownership or mode.
+          sudo systemctl restart litellm
+          for _ in $(seq 1 30); do
+            if curl -fsS --max-time 2 http://127.0.0.1:4000/health/liveliness >/dev/null 2>&1 \
+                && systemctl is-active --quiet lavasec-eval-receiver; then
+              restarted=1
+              break
+            fi
+            sleep 1
+          done
+          [ -n "${restarted:-}" ] || { echo "gateway/receiver restart failed" >&2; exit 1; }
+          expected_state="$(id -un):$(id -gn):750"
+          [ "$(stat -c %U:%G:%a /var/lib/lavasec-eval)" = "${expected_state}" ] \
+            || { echo "gateway restart changed evaluation spool permissions" >&2; exit 1; }
+
           # Independent of the script's own checks: loopback only, never wildcard.
           ss -tln | grep -q '127\.0\.0\.1:4000' \
             || { echo "gateway not on loopback:4000" >&2; ss -tln >&2; exit 1; }
@@ -242,7 +258,7 @@ jobs:
             || { echo "sentinel did not round-trip: ${reply}" >&2; exit 1; }
           spooled=""
           for _ in $(seq 1 30); do
-            if grep -q "E2E-GATEWAY-OK" /var/lib/lavasec/eval-spool.jsonl 2>/dev/null; then
+            if grep -q "E2E-GATEWAY-OK" /var/lib/lavasec-eval/eval-spool.jsonl 2>/dev/null; then
               spooled=1
               break
             fi
