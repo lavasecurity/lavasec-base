@@ -137,39 +137,69 @@ while IFS=$'\t' read -r provider model in_cost out_cost; do
   # would have fired on the FIRST probe, on a path CI cannot reach (CI skips
   # before this line for want of Langfuse credentials).
   trace_id="lavasec-recon-$(date +%s)-$(openssl rand -hex 6)"
-  body="$(mktemp)"
+  body="$(mktemp)"; outfile="$(mktemp)"
   jq -n --arg m "${model}" --arg t "${trace_id}" '{
     model: $m,
     max_tokens: 1,
     messages: [{role: "user", content: "ping"}],
     metadata: { trace_id: $t, trace_name: "lavasec-reconciliation" }
   }' > "${body}"
-  if resp="$(curl -fsS --max-time 60 -K "${gw_cfg}" -X POST \
-      --data-binary "@${body}" "${GATEWAY}/v1/chat/completions" 2>/dev/null)"; then
-    ptok="$(printf '%s' "${resp}" | jq -r '.usage.prompt_tokens // 0')"
-    ctok="$(printf '%s' "${resp}" | jq -r '.usage.completion_tokens // 0')"
+  # capture the HTTP status so an OpenCode probe that fails is classifiable as
+  # an entitlement/balance rejection (401/403) vs a real routing regression
+  http="$(curl -sS --max-time 60 -K "${gw_cfg}" -o "${outfile}" -w '%{http_code}' \
+      -X POST --data-binary "@${body}" "${GATEWAY}/v1/chat/completions" 2>/dev/null || true)"
+  http="${http:-000}"
+  if [ "${http%"${http#?}"}" = "2" ]; then
+    ptok="$(jq -r '.usage.prompt_tokens // 0' "${outfile}")"
+    ctok="$(jq -r '.usage.completion_tokens // 0' "${outfile}")"
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
       "${provider}" "${model}" "${trace_id}" "${in_cost}" "${out_cost}" "${ptok}" "${ctok}" >> "${sent}"
   else
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-      "${provider}" "${model}" "REQUEST_FAILED" "${in_cost}" "${out_cost}" 0 0 >> "${sent}"
+    printf '%s\t%s\tREQUEST_FAILED:%s\t%s\t%s\t0\t0\n' \
+      "${provider}" "${model}" "${http}" "${in_cost}" "${out_cost}" >> "${sent}"
   fi
-  rm -f "${body}"
+  rm -f "${body}" "${outfile}"
 done <<< "${probes}"
 
 # Langfuse batches; give the exporter time to flush before reading back.
 sleep 10
 
-# --- read each trace back and compare --------------------------------------
+# Read each trace back and compare.
 lf_host="$(sudo sh -c ". ${ENV_FILE} && printf %s \"\${LANGFUSE_HOST%/}\"")"
 rc=0
+# OpenCode exposes two prefixes (opencode-zen, opencode-go) sharing ONE key,
+# with independently entitled plans. A probe on the plan this account doesn't
+# hold fails at the gateway; that is expected, not a tracing/config bug. Only
+# gate on those failures when NO opencode route worked at all.
+oc_had_success=0
+while IFS=$'\t' read -r provider model trace_id in_cost out_cost ptok ctok; do
+  case "${provider}" in
+    opencode-zen|opencode-go)
+      case "${trace_id}" in REQUEST_FAILED:*) ;; *) oc_had_success=1 ;; esac ;;
+  esac
+done < "${sent}"
 printf '\n%-12s %-34s %s\n' "PROVIDER" "MODEL" "VERDICT"
 while IFS=$'\t' read -r provider model trace_id in_cost out_cost ptok ctok; do
   [ -n "${provider}" ] || continue
-  if [ "${trace_id}" = "REQUEST_FAILED" ]; then
-    printf '%-12s %-34s %s\n' "${provider}" "${model}" "FAIL: gateway request failed"
-    rc=1; continue
-  fi
+  case "${trace_id}" in
+    REQUEST_FAILED:*)
+      http="${trace_id#REQUEST_FAILED:}"
+      case "${provider}" in
+        opencode-zen|opencode-go)
+          # An entitled-plan outage is a real regression; only an entitlement/
+          # balance rejection (401/403) on the plan this account lacks is a
+          # tolerated note, and only while another opencode route worked.
+          if [ "${oc_had_success}" -eq 1 ] && { [ "${http}" = "401" ] || [ "${http}" = "403" ]; }; then
+            printf '%-12s %-34s %s\n' "${provider}" "${model}" "note: opencode probe rejected (HTTP ${http}, unentitled plan) — ignoring"
+            continue
+          fi
+          printf '%-12s %-34s %s\n' "${provider}" "${model}" "FAIL: gateway request failed (HTTP ${http}; no tolerated opencode route)"
+          rc=1; continue ;;
+      *)
+        printf '%-12s %-34s %s\n' "${provider}" "${model}" "FAIL: gateway request failed"
+        rc=1; continue ;;
+    esac
+  esac
 
   # Poll: the trace may not be queryable the instant it is flushed.
   trace=""

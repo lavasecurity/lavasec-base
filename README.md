@@ -140,6 +140,12 @@ restarts the service, and re-verifies it — required when *adding* a
 provider's first key, and harmless for a plain rotation. Clients never
 notice — they only hold the local gateway key.
 
+For a *structural* provider change (e.g. a prefix renamed or split into new
+routes), also re-run `scripts/40-pi.sh` and `scripts/55-opencode.sh` — they
+rewrite the model ids pi and opencode persist locally (`~/.bashrc`,
+`~/.config/opencode/opencode.json`). `30-gateway.sh` prints a reminder when it
+detects this.
+
 ## Tracing (optional)
 
 Add `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and `LANGFUSE_HOST` to
