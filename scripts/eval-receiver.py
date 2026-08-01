@@ -7,8 +7,6 @@ import json
 import os
 import subprocess
 import sys
-import threading
-import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
@@ -19,15 +17,9 @@ DAGU_BIN = os.environ.get("DAGU_BIN", "/usr/local/bin/dagu")
 DAG = os.environ.get(
     "LAVASEC_EVAL_DAG", "/etc/lavasec/dags/langfuse-eval.yaml"
 )
-TRIGGER_DEBOUNCE_SEC = float(
-    os.environ.get("LAVASEC_EVAL_TRIGGER_DEBOUNCE", "20")
-)
 SPOOL_MAX_BYTES = int(
     os.environ.get("LAVASEC_EVAL_SPOOL_MAX_BYTES", str(64 * 1024 * 1024))
 )
-
-_trigger_lock = threading.Lock()
-_last_trigger = 0.0
 
 
 def _log(message):
@@ -47,28 +39,21 @@ def _spool_lock():
 
 
 def _trigger():
-    """Start the evaluator once per burst without affecting the request path."""
-    global _last_trigger
-    now = time.monotonic()
-    with _trigger_lock:
-        if now - _last_trigger < TRIGGER_DEBOUNCE_SEC:
-            return
-        _last_trigger = now
+    """Start the evaluator without blocking or affecting the request path."""
     try:
-        subprocess.Popen(
+        return subprocess.Popen(
             [DAGU_BIN, "start", DAG],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
             start_new_session=True,
         )
     except Exception as exc:
         _log(f"dagu trigger failed: {exc!r}")
+        return None
 
 
 def _append(events):
     valid = [event for event in events if isinstance(event, dict) and event.get("trace_id")]
     if not valid:
-        return 0
+        return None
 
     with _spool_lock():
         try:
@@ -103,7 +88,9 @@ class Handler(BaseHTTPRequestHandler):
             raw = self.rfile.read(length) if length else b""
             payload = json.loads(raw or b"[]")
             events = payload if isinstance(payload, list) else [payload]
-            if _append(events):
+            # Zero means the spool is over capacity. Trigger anyway so Dagu
+            # can drain it and recover; None alone means no evaluable event.
+            if _append(events) is not None:
                 _trigger()
         except Exception as exc:
             _log(f"rejected payload: {exc!r}")

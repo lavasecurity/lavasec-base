@@ -10,6 +10,7 @@ import sys
 import threading
 import tempfile
 import unittest
+from urllib.request import Request, urlopen
 
 import yaml
 
@@ -37,12 +38,28 @@ def _render_template(env):
     return yaml.safe_load("\n".join(rendered))
 
 
+def _load_receiver():
+    spec = importlib.util.spec_from_file_location("eval_receiver", RECEIVER)
+    receiver = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(receiver)
+    return receiver
+
+
+def _fake_dagu(directory, marker):
+    executable = Path(directory) / "dagu"
+    executable.write_text(
+        "#!/usr/bin/env python3\n"
+        "import pathlib, sys\n"
+        "with pathlib.Path(sys.argv[2]).open('a') as fh: fh.write('triggered\\n')\n"
+    )
+    executable.chmod(0o755)
+    return str(executable), str(marker)
+
+
 class EvalIngressTest(unittest.TestCase):
     def test_receiver_append_waits_for_cross_process_spool_lock(self):
         self.assertTrue(RECEIVER.exists(), "eval receiver is not implemented")
-        spec = importlib.util.spec_from_file_location("eval_receiver", RECEIVER)
-        receiver = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(receiver)
+        receiver = _load_receiver()
 
         with tempfile.TemporaryDirectory() as tmp:
             spool = Path(tmp) / "eval-spool.jsonl"
@@ -104,6 +121,63 @@ class EvalIngressTest(unittest.TestCase):
                 [json.loads(line) for line in spool.read_text().splitlines()],
                 [{"trace_id": "trace-1", "response": "ok"}],
             )
+
+    def test_each_valid_callback_triggers_dagu(self):
+        receiver = _load_receiver()
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = Path(tmp) / "triggers"
+            receiver.DAGU_BIN, receiver.DAG = _fake_dagu(tmp, marker)
+
+            processes = [receiver._trigger(), receiver._trigger()]
+            for process in processes:
+                self.assertIsNotNone(process)
+                process.wait(timeout=2)
+
+            self.assertEqual(
+                marker.read_text().splitlines(),
+                ["triggered", "triggered"],
+                "a callback inside a burst lost its Dagu trigger",
+            )
+
+    def test_oversized_spool_still_triggers_dagu(self):
+        receiver = _load_receiver()
+        with tempfile.TemporaryDirectory() as tmp:
+            spool = Path(tmp) / "eval-spool.jsonl"
+            spool.write_text("already over capacity\n")
+            marker = Path(tmp) / "triggers"
+            receiver.SPOOL = str(spool)
+            receiver.SPOOL_MAX_BYTES = 0
+            receiver.DAGU_BIN, receiver.DAG = _fake_dagu(tmp, marker)
+            real_trigger = receiver._trigger
+            processes = []
+
+            def tracked_trigger():
+                process = real_trigger()
+                processes.append(process)
+                return process
+
+            receiver._trigger = tracked_trigger
+
+            server = receiver.ThreadingHTTPServer(("127.0.0.1", 0), receiver.Handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                request = Request(
+                    f"http://127.0.0.1:{server.server_port}/",
+                    data=b'{"trace_id":"trace-over-capacity"}',
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urlopen(request, timeout=2) as response:
+                    self.assertEqual(response.status, 204)
+                self.assertEqual(len(processes), 1)
+                self.assertIsNotNone(processes[0])
+                processes[0].wait(timeout=2)
+                self.assertEqual(marker.read_text().splitlines(), ["triggered"])
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(2)
 
     def test_generic_callback_is_rendered_only_with_endpoint(self):
         without_endpoint = _render_template({"LANGFUSE_ENABLED": "1"})
