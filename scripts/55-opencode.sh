@@ -73,6 +73,7 @@ configured="$(sudo sh -c ". ${ENV_FILE} && \
   { [ -n \"\${DEEPSEEK_API_KEY:-}\" ]   && echo deepseek; \
     [ -n \"\${OPENROUTER_API_KEY:-}\" ] && echo openrouter; \
     [ -n \"\${NEURALWATT_API_KEY:-}\" ] && echo neuralwatt; \
+    [ -n \"\${SYNTHETIC_API_KEY:-}\" ] && echo synthetic; \
     [ -n \"\${ANTHROPIC_API_KEY:-}\" ]  && echo anthropic; \
     [ -n \"\${OPENAI_API_KEY:-}\" ]     && echo openai; \
     [ -n \"\${OPENCODE_API_KEY:-}\" ]   && echo opencode-zen opencode-go; \
@@ -160,6 +161,7 @@ fallback_for() {  # provider -> one representative model id
     deepseek)   echo "deepseek/deepseek-chat" ;;
     openrouter) echo "openrouter/openai/gpt-4o-mini" ;;
     neuralwatt) echo "neuralwatt/qwen3.6-35b" ;;
+    synthetic)  echo "synthetic/syn:small:text" ;;
     anthropic)  echo "anthropic/claude-haiku-4-5" ;;
     openai)     echo "openai/gpt-4o-mini" ;;
     opencode-go)  echo "opencode-go/deepseek-v4-flash" ;;

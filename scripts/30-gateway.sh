@@ -98,6 +98,7 @@ printf '%s\n' "${rendered_content}" > "${rendered}"
 PROVIDER_CATALOGS="opencode-go|https://opencode.ai/zen/go/v1|OPENCODE_API_KEY|custom
 opencode-zen|https://opencode.ai/zen/v1|OPENCODE_API_KEY|custom
 neuralwatt|https://api.neuralwatt.com/v1|NEURALWATT_API_KEY|custom
+synthetic|https://api.synthetic.new/v1|SYNTHETIC_API_KEY|custom
 openrouter|https://openrouter.ai/api/v1|OPENROUTER_API_KEY|native
 deepseek|https://api.deepseek.com/v1|DEEPSEEK_API_KEY|native
 ollama|${OLLAMA_BASE:-https://ollama.com/v1}|OLLAMA_API_KEY|custom"

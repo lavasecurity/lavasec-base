@@ -65,6 +65,7 @@ if [ -z "${PI_CHECK_MODEL:-}" ]; then
     if   [ -n \"\${DEEPSEEK_API_KEY:-}\" ];   then echo deepseek/deepseek-chat; \
     elif [ -n \"\${OPENROUTER_API_KEY:-}\" ]; then echo openrouter/openai/gpt-4o-mini; \
     elif [ -n \"\${NEURALWATT_API_KEY:-}\" ]; then echo neuralwatt/qwen3.6-35b; \
+    elif [ -n \"\${SYNTHETIC_API_KEY:-}\" ];  then echo synthetic/syn:small:text; \
     elif [ -n \"\${ANTHROPIC_API_KEY:-}\" ];  then echo anthropic/claude-haiku-4-5; \
     elif [ -n \"\${OPENAI_API_KEY:-}\" ];     then echo openai/gpt-4o-mini; \
     elif [ -n \"\${OPENCODE_API_KEY:-}\" ];   then echo opencode-zen/claude-haiku-4-5; fi")"
