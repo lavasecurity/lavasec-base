@@ -44,6 +44,10 @@ jobs:
       # fails if this stops being enough, so the guard can't rot quietly.
       MOCK_MODEL_COUNT: "800"
       CI_DIR: /tmp/lavasec-ci
+      # Pin litellm to the last known-good line (see the langfuse judge plan):
+      # the 1.95.0 line's management_v1 imports fastapi's get_flat_dependant,
+      # removed in fastapi 0.140.7, so unpinned installs crash at startup.
+      LITELLM_VERSION: "1.94.0"
 
     steps:
       - uses: actions/checkout@v4
