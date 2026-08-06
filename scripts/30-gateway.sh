@@ -172,38 +172,38 @@ EOF
   # prices and capabilities under .metadata. Read both; anything missing
   # is simply omitted (never invented).
   ids="$(printf '%s' "${raw}" | jq -r '
-    def permil(x): if x == null then "" else (x / 1000000 | tostring) end;
-    # Prices arrive as bare numbers, numeric strings ("0.000001" —
-    # OpenRouter) or CURRENCY-FORMATTED strings ("$0.000001" —
-    # synthetic.new). Strip anything that cannot be part of a number and
-    # drop the field unless what remains is one. A non-numeric cost is not
-    # cosmetic: litellm validates model_info lazily, so the model lists
-    # fine and then fails EVERY request with a pydantic ModelGroupInfo
-    # float_parsing error. Kept as the published string rather than round
-    # -tripped through a jq number, to preserve the exact precision.
-    def price(x):
-      if x == null then ""
-      else (x | tostring | gsub("[^0-9.eE+-]"; "")) as $s
-        | if ($s | test("^[+-]?([0-9]+\\.?[0-9]*|\\.[0-9]+)([eE][+-]?[0-9]+)?$"))
-          then $s else "" end
-      end;
+    # Price normalization: litellm wants a PLAIN decimal per-token number.
+    # OpenRouter ships numbers; synthetic.new ships "$"-prefixed strings
+    # ("$0.0000001"); Neuralwatt nests per-MILLION prices under .metadata.
+    # dtok coerces any of those sources to a bare decimal string, or "" when
+    # there is no usable price (so the value is simply omitted downstream).
+    # This is not cosmetic: litellm validates model_info LAZILY, so a
+    # non-numeric cost yields a config that loads and lists the model, then
+    # fails every request to it with a pydantic ModelGroupInfo float_parsing
+    # error.
+    def dtok(x): if x == null or x == "" then ""
+      else ((x|tostring|gsub("\\$";"")) | tonumber? | tostring) // "" end;
+    def permil(x): if x == null or x == "" then "" else (x / 1000000 | tostring) end;
+    def price14(a; b): if (a // null) then dtok(a) else permil(b) end;
+    def cache_permil(x): if (x // null) then permil(x) else "" end;
+    # first non-empty among candidates (jq "" is falsy for `//`, so filter)
+    def first1: map(select(. != ""))[0] // "";
     .data[]? | [
       .id,
-      (if .pricing.prompt then price(.pricing.prompt)
-       else permil(.metadata.pricing.input_per_million) end),
-      (if .pricing.completion then price(.pricing.completion)
-       else permil(.metadata.pricing.output_per_million) end),
+      (price14(.pricing.prompt; .metadata.pricing.input_per_million)),
+      (price14(.pricing.completion; .metadata.pricing.output_per_million)),
       ((.context_length // .top_provider.context_length
         // .metadata.limits.max_context_length // .max_model_len // "") | tostring),
       ((.top_provider.max_completion_tokens
         // .metadata.limits.max_output_tokens // "") | tostring),
-      # singular OR plural: OpenRouter publishes input_cache_read,
-      # synthetic.new publishes input_cache_reads. Reading only one shape
-      # silently drops the cache price and skews cost accounting.
-      (if (.pricing.input_cache_read // .pricing.input_cache_reads) then
-         price(.pricing.input_cache_read // .pricing.input_cache_reads)
-       else permil(.metadata.pricing.cached_input_per_million) end),
-      price(.pricing.input_cache_write // .pricing.input_cache_writes),
+      (([dtok(.pricing.input_cache_read), dtok(.pricing.input_cache_reads),
+         dtok(.pricing.input_cache_read_tokens),
+         cache_permil(.metadata.pricing.cached_input_per_million)] | first1)),
+      # plural too: synthetic.new publishes input_cache_writes, and reading
+      # only the singular silently drops it (same shape split as the reads
+      # above, which already carries both)
+      (([dtok(.pricing.input_cache_write),
+         dtok(.pricing.input_cache_writes)] | first1)),
       (((.architecture.input_modalities // [] | index("image")) != null
         or (.metadata.capabilities.vision // false)) | tostring),
       (((.supported_parameters // [] | index("reasoning")) != null
