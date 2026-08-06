@@ -3,10 +3,18 @@ set -euo pipefail
 # LiteLLM gateway: venv under /opt/lavasec, config + systemd unit installed,
 # service enabled, loopback-only bind verified, /v1/models smoke-tested.
 # Requires /etc/lavasec/lavasec.env (root:root 600) — see env/example.env.
-# Optional: LITELLM_VERSION=x.y.z to pin the litellm release.
+# Optional: LITELLM_VERSION=x.y.z to pin a different litellm release, or
+# LITELLM_VERSION= (empty) to take whatever is latest.
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE=/etc/lavasec/lavasec.env
+
+# Pinned by default, because this script is also the key add/rotate workflow:
+# every re-run pip-installs, so an unpinned floor silently upgrades a box that
+# was working. litellm 1.95.0's management_v1 imports fastapi's
+# get_flat_dependant, removed in fastapi 0.140.7 — the service then crash-loops
+# at startup with an ImportError. Bump this only after a green e2e run.
+LITELLM_VERSION="${LITELLM_VERSION-1.94.0}"
 
 # --- preflight: env file present, locked down, master key real ---
 if [ ! -f "${ENV_FILE}" ]; then
