@@ -149,20 +149,30 @@ EOF
   # prices and capabilities under .metadata. Read both; anything missing
   # is simply omitted (never invented).
   ids="$(printf '%s' "${raw}" | jq -r '
-    def permil(x): if x == null then "" else (x / 1000000 | tostring) end;
+    # Price normalization: litellm wants a PLAIN decimal per-token number.
+    # OpenRouter ships numbers; synthetic.new ships "$"-prefixed strings
+    # ("$0.0000001"); Neuralwatt nests per-MILLION prices under .metadata.
+    # dtok coerces any of those sources to a bare decimal string, or "" when
+    # there is no usable price (so the value is simply omitted downstream).
+    def dtok(x): if x == null or x == "" then ""
+      else ((x|tostring|gsub("\\$";"")) | tonumber? | tostring) // "" end;
+    def permil(x): if x == null or x == "" then "" else (x / 1000000 | tostring) end;
+    def price14(a; b): if (a // null) then dtok(a) else permil(b) end;
+    def cache_permil(x): if (x // null) then permil(x) else "" end;
+    # first non-empty among candidates (jq "" is falsy for `//`, so filter)
+    def first1: map(select(. != ""))[0] // "";
     .data[]? | [
       .id,
-      (if .pricing.prompt then (.pricing.prompt | tostring)
-       else permil(.metadata.pricing.input_per_million) end),
-      (if .pricing.completion then (.pricing.completion | tostring)
-       else permil(.metadata.pricing.output_per_million) end),
+      (price14(.pricing.prompt; .metadata.pricing.input_per_million)),
+      (price14(.pricing.completion; .metadata.pricing.output_per_million)),
       ((.context_length // .top_provider.context_length
         // .metadata.limits.max_context_length // .max_model_len // "") | tostring),
       ((.top_provider.max_completion_tokens
         // .metadata.limits.max_output_tokens // "") | tostring),
-      (if .pricing.input_cache_read then (.pricing.input_cache_read | tostring)
-       else permil(.metadata.pricing.cached_input_per_million) end),
-      ((.pricing.input_cache_write // "") | tostring),
+      (([dtok(.pricing.input_cache_read), dtok(.pricing.input_cache_reads),
+         dtok(.pricing.input_cache_read_tokens),
+         cache_permil(.metadata.pricing.cached_input_per_million)] | first1)),
+      (dtok(.pricing.input_cache_write)),
       (((.architecture.input_modalities // [] | index("image")) != null
         or (.metadata.capabilities.vision // false)) | tostring),
       (((.supported_parameters // [] | index("reasoning")) != null
