@@ -111,6 +111,21 @@ openrouter|https://openrouter.ai/api/v1|OPENROUTER_API_KEY|native
 deepseek|https://api.deepseek.com/v1|DEEPSEEK_API_KEY|native
 ollama|${OLLAMA_BASE:-https://ollama.com/v1}|OLLAMA_API_KEY|custom"
 
+# Last line of defence before a price reaches the config. jq already
+# normalises the shapes we know about; this refuses anything that still
+# isn't a plain number, because the failure mode is silent-then-total:
+# litellm accepts the config, lists the model, and then rejects every
+# request to it. Loud on stderr — a dropped price is worth seeing.
+emit_cost() {  # field value
+  case "${2}" in
+    ''|null) return ;;
+    *[!0-9.eE+-]*)
+      echo "30-gateway: dropping non-numeric ${1} '${2}' for ${prefix}/${id}" >&2
+      return ;;
+  esac
+  echo "      ${1}: ${2}"
+}
+
 catalog_fragment="$(mktemp)"
 while IFS='|' read -r prefix base keyvar routing; do
   [ -n "${prefix}" ] || continue
@@ -158,19 +173,37 @@ EOF
   # is simply omitted (never invented).
   ids="$(printf '%s' "${raw}" | jq -r '
     def permil(x): if x == null then "" else (x / 1000000 | tostring) end;
+    # Prices arrive as bare numbers, numeric strings ("0.000001" —
+    # OpenRouter) or CURRENCY-FORMATTED strings ("$0.000001" —
+    # synthetic.new). Strip anything that cannot be part of a number and
+    # drop the field unless what remains is one. A non-numeric cost is not
+    # cosmetic: litellm validates model_info lazily, so the model lists
+    # fine and then fails EVERY request with a pydantic ModelGroupInfo
+    # float_parsing error. Kept as the published string rather than round
+    # -tripped through a jq number, to preserve the exact precision.
+    def price(x):
+      if x == null then ""
+      else (x | tostring | gsub("[^0-9.eE+-]"; "")) as $s
+        | if ($s | test("^[+-]?([0-9]+\\.?[0-9]*|\\.[0-9]+)([eE][+-]?[0-9]+)?$"))
+          then $s else "" end
+      end;
     .data[]? | [
       .id,
-      (if .pricing.prompt then (.pricing.prompt | tostring)
+      (if .pricing.prompt then price(.pricing.prompt)
        else permil(.metadata.pricing.input_per_million) end),
-      (if .pricing.completion then (.pricing.completion | tostring)
+      (if .pricing.completion then price(.pricing.completion)
        else permil(.metadata.pricing.output_per_million) end),
       ((.context_length // .top_provider.context_length
         // .metadata.limits.max_context_length // .max_model_len // "") | tostring),
       ((.top_provider.max_completion_tokens
         // .metadata.limits.max_output_tokens // "") | tostring),
-      (if .pricing.input_cache_read then (.pricing.input_cache_read | tostring)
+      # singular OR plural: OpenRouter publishes input_cache_read,
+      # synthetic.new publishes input_cache_reads. Reading only one shape
+      # silently drops the cache price and skews cost accounting.
+      (if (.pricing.input_cache_read // .pricing.input_cache_reads) then
+         price(.pricing.input_cache_read // .pricing.input_cache_reads)
        else permil(.metadata.pricing.cached_input_per_million) end),
-      ((.pricing.input_cache_write // "") | tostring),
+      price(.pricing.input_cache_write // .pricing.input_cache_writes),
       (((.architecture.input_modalities // [] | index("image")) != null
         or (.metadata.capabilities.vision // false)) | tostring),
       (((.supported_parameters // [] | index("reasoning")) != null
@@ -200,13 +233,13 @@ EOF
       fi
       echo "    model_info:"
       echo "      mode: chat"
-      case "${in_cost}" in ''|null) ;; *) echo "      input_cost_per_token: ${in_cost}" ;; esac
-      case "${out_cost}" in ''|null) ;; *) echo "      output_cost_per_token: ${out_cost}" ;; esac
+      emit_cost input_cost_per_token "${in_cost}"
+      emit_cost output_cost_per_token "${out_cost}"
       case "${ctx}" in ''|null|0) ;; *) echo "      max_input_tokens: ${ctx}" ;; esac
       # sizes: 0 is meaningless, unlike a published price of 0
       case "${max_out}" in ''|null|0) ;; *) echo "      max_output_tokens: ${max_out}" ;; esac
-      case "${cache_r}" in ''|null) ;; *) echo "      cache_read_input_token_cost: ${cache_r}" ;; esac
-      case "${cache_w}" in ''|null) ;; *) echo "      cache_creation_input_token_cost: ${cache_w}" ;; esac
+      emit_cost cache_read_input_token_cost "${cache_r}"
+      emit_cost cache_creation_input_token_cost "${cache_w}"
       case "${vision}" in true) echo "      supports_vision: true" ;; esac
       case "${reasoning}" in true) echo "      supports_reasoning: true" ;; esac
     } >> "${catalog_fragment}"
