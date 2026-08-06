@@ -3,10 +3,18 @@ set -euo pipefail
 # LiteLLM gateway: venv under /opt/lavasec, config + systemd unit installed,
 # service enabled, loopback-only bind verified, /v1/models smoke-tested.
 # Requires /etc/lavasec/lavasec.env (root:root 600) — see env/example.env.
-# Optional: LITELLM_VERSION=x.y.z to pin the litellm release.
+# Optional: LITELLM_VERSION=x.y.z to pin a different litellm release, or
+# LITELLM_VERSION= (empty) to take whatever is latest.
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE=/etc/lavasec/lavasec.env
+
+# Pinned by default, because this script is also the key add/rotate workflow:
+# every re-run pip-installs, so an unpinned floor silently upgrades a box that
+# was working. litellm 1.95.0's management_v1 imports fastapi's
+# get_flat_dependant, removed in fastapi 0.140.7 — the service then crash-loops
+# at startup with an ImportError. Bump this only after a green e2e run.
+LITELLM_VERSION="${LITELLM_VERSION-1.94.0}"
 
 # --- preflight: env file present, locked down, master key real ---
 if [ ! -f "${ENV_FILE}" ]; then
@@ -103,6 +111,21 @@ openrouter|https://openrouter.ai/api/v1|OPENROUTER_API_KEY|native
 deepseek|https://api.deepseek.com/v1|DEEPSEEK_API_KEY|native
 ollama|${OLLAMA_BASE:-https://ollama.com/v1}|OLLAMA_API_KEY|custom"
 
+# Last line of defence before a price reaches the config. jq already
+# normalises the shapes we know about; this refuses anything that still
+# isn't a plain number, because the failure mode is silent-then-total:
+# litellm accepts the config, lists the model, and then rejects every
+# request to it. Loud on stderr — a dropped price is worth seeing.
+emit_cost() {  # field value
+  case "${2}" in
+    ''|null) return ;;
+    *[!0-9.eE+-]*)
+      echo "30-gateway: dropping non-numeric ${1} '${2}' for ${prefix}/${id}" >&2
+      return ;;
+  esac
+  echo "      ${1}: ${2}"
+}
+
 catalog_fragment="$(mktemp)"
 while IFS='|' read -r prefix base keyvar routing; do
   [ -n "${prefix}" ] || continue
@@ -154,6 +177,10 @@ EOF
     # ("$0.0000001"); Neuralwatt nests per-MILLION prices under .metadata.
     # dtok coerces any of those sources to a bare decimal string, or "" when
     # there is no usable price (so the value is simply omitted downstream).
+    # This is not cosmetic: litellm validates model_info LAZILY, so a
+    # non-numeric cost yields a config that loads and lists the model, then
+    # fails every request to it with a pydantic ModelGroupInfo float_parsing
+    # error.
     def dtok(x): if x == null or x == "" then ""
       else ((x|tostring|gsub("\\$";"")) | tonumber? | tostring) // "" end;
     def permil(x): if x == null or x == "" then "" else (x / 1000000 | tostring) end;
@@ -172,7 +199,11 @@ EOF
       (([dtok(.pricing.input_cache_read), dtok(.pricing.input_cache_reads),
          dtok(.pricing.input_cache_read_tokens),
          cache_permil(.metadata.pricing.cached_input_per_million)] | first1)),
-      (dtok(.pricing.input_cache_write)),
+      # plural too: synthetic.new publishes input_cache_writes, and reading
+      # only the singular silently drops it (same shape split as the reads
+      # above, which already carries both)
+      (([dtok(.pricing.input_cache_write),
+         dtok(.pricing.input_cache_writes)] | first1)),
       (((.architecture.input_modalities // [] | index("image")) != null
         or (.metadata.capabilities.vision // false)) | tostring),
       (((.supported_parameters // [] | index("reasoning")) != null
@@ -202,13 +233,13 @@ EOF
       fi
       echo "    model_info:"
       echo "      mode: chat"
-      case "${in_cost}" in ''|null) ;; *) echo "      input_cost_per_token: ${in_cost}" ;; esac
-      case "${out_cost}" in ''|null) ;; *) echo "      output_cost_per_token: ${out_cost}" ;; esac
+      emit_cost input_cost_per_token "${in_cost}"
+      emit_cost output_cost_per_token "${out_cost}"
       case "${ctx}" in ''|null|0) ;; *) echo "      max_input_tokens: ${ctx}" ;; esac
       # sizes: 0 is meaningless, unlike a published price of 0
       case "${max_out}" in ''|null|0) ;; *) echo "      max_output_tokens: ${max_out}" ;; esac
-      case "${cache_r}" in ''|null) ;; *) echo "      cache_read_input_token_cost: ${cache_r}" ;; esac
-      case "${cache_w}" in ''|null) ;; *) echo "      cache_creation_input_token_cost: ${cache_w}" ;; esac
+      emit_cost cache_read_input_token_cost "${cache_r}"
+      emit_cost cache_creation_input_token_cost "${cache_w}"
       case "${vision}" in true) echo "      supports_vision: true" ;; esac
       case "${reasoning}" in true) echo "      supports_reasoning: true" ;; esac
     } >> "${catalog_fragment}"
