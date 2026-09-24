@@ -104,6 +104,12 @@ EOF
   return ${rc}
 }
 
+# Image attachments: config-defined models get no capability defaults, so a
+# model with no `modalities` reads as text-only and opencode/T3 Code reject the
+# image part before the request is sent. Post the gateway's `supports_vision`
+# into `attachment` + `modalities` (input text+image) so a multimodal route is
+# usable; text-only models keep the default (no image input).
+#
 # Reasoning-effort variants: opencode renders an effort selector (and T3
 # Code its effort toggle) ONLY from `variants` in this config — for
 # config-defined models it derives nothing from models.dev or the gateway.
@@ -151,6 +157,10 @@ models_json="$(gw_get /model/info 2>/dev/null \
                   context: ($m.model_info.max_input_tokens // 128000),
                   output: ($m.model_info.max_output_tokens // 8192)
                 } }
+              + (if ($m.model_info.supports_vision // false) then
+                   { attachment: true,
+                     modalities: { input: ["text", "image"], output: ["text"] } }
+                 else {} end)
               + (if ($efforts | length) > 0 then
                    { variants: (reduce $efforts[] as $v ({}; .[$v] = { reasoningEffort: $v })) }
                  else {} end)) })
