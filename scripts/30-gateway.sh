@@ -96,19 +96,24 @@ printf '%s\n' "${rendered_content}" > "${rendered}"
 # kimi-k3 missing entirely). Providers publish the truth at /models, so
 # enumerate that and emit explicit entries. Wildcards stay in the template
 # for ad-hoc slugs; these entries make the LISTING complete and accurate.
-# prefix|base_url|key_var|routing
+# prefix|base_url|key_var|routing[|vision_ids]
 #   native -> litellm has a first-class provider: route as "<prefix>/<id>"
 #     with NO api_base so provider-specific behaviour survives (OpenRouter's
 #     HTTP-Referer/X-Title attribution — routing these through the generic
 #     openai client made OpenRouter report the caller as "unknown").
 #   custom -> OpenAI-compatible endpoint litellm has no provider for:
 #     route as "openai/<id>" + api_base.
+#   vision_ids (optional 5th column) -> comma-separated model ids that must
+#     route through the generic openai client even under a native provider,
+#     because the native client flattens list content to a string and drops
+#     image parts (litellm's DeepSeek client: "DeepSeek does not support
+#     content in list format"). Those entries also get supports_vision.
 PROVIDER_CATALOGS="opencode-go|https://opencode.ai/zen/go/v1|OPENCODE_API_KEY|custom
 opencode-zen|https://opencode.ai/zen/v1|OPENCODE_API_KEY|custom
 neuralwatt|https://api.neuralwatt.com/v1|NEURALWATT_API_KEY|custom
 synthetic|https://api.synthetic.new/v1|SYNTHETIC_API_KEY|custom
 openrouter|https://openrouter.ai/api/v1|OPENROUTER_API_KEY|native
-deepseek|https://api.deepseek.com/v1|DEEPSEEK_API_KEY|native
+deepseek|https://api.deepseek.com/v1|DEEPSEEK_API_KEY|native|deepseek-flash
 ollama|${OLLAMA_BASE:-https://ollama.com/v1}|OLLAMA_API_KEY|custom"
 
 # Last line of defence before a price reaches the config. jq already
@@ -127,7 +132,7 @@ emit_cost() {  # field value
 }
 
 catalog_fragment="$(mktemp)"
-while IFS='|' read -r prefix base keyvar routing; do
+while IFS='|' read -r prefix base keyvar routing vision_ids; do
   [ -n "${prefix}" ] || continue
   fetch_failed=""
   if [ -n "${keyvar}" ]; then
@@ -217,10 +222,21 @@ EOF
   while IFS=$'\x1f' read -r id in_cost out_cost ctx max_out cache_r cache_w vision reasoning; do
     [ -n "${id}" ] || continue
     case "${id}" in *'"'*|*'*'*) continue ;; esac   # skip ids we can't quote safely
+    # A native provider whose client flattens list content (DeepSeek) drops
+    # image parts, so its named vision models route through the generic openai
+    # client + the provider's own base URL, which forwards image_url. Others
+    # keep native routing (provider-specific behaviour survives).
+    model_routing="${routing}"
+    model_vision="${vision}"
+    case ",${vision_ids}," in
+      *",${id},"*)
+        model_vision=true
+        [ "${routing}" = "native" ] && model_routing="custom" ;;
+    esac
     {
       echo "  - model_name: \"${prefix}/${id}\""
       echo "    litellm_params:"
-      if [ "${routing}" = "native" ]; then
+      if [ "${model_routing}" = "native" ]; then
         echo "      model: \"${prefix}/${id}\""
       else
         echo "      model: \"openai/${id}\""
@@ -240,7 +256,7 @@ EOF
       case "${max_out}" in ''|null|0) ;; *) echo "      max_output_tokens: ${max_out}" ;; esac
       emit_cost cache_read_input_token_cost "${cache_r}"
       emit_cost cache_creation_input_token_cost "${cache_w}"
-      case "${vision}" in true) echo "      supports_vision: true" ;; esac
+      case "${model_vision}" in true) echo "      supports_vision: true" ;; esac
       case "${reasoning}" in true) echo "      supports_reasoning: true" ;; esac
     } >> "${catalog_fragment}"
     count=$((count + 1))
