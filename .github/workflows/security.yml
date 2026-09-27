@@ -15,7 +15,7 @@ on:
 
 jobs:
   security:
-    uses: lavasecurity/.github/.github/workflows/security.yml@bbba4b6150d8b2674453e8fe47a835fd423b6b4c
+    uses: lavasecurity/.github/.github/workflows/security.yml@main
     with:
       gitleaks: true
       actionlint: true
