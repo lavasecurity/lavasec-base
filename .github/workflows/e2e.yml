@@ -35,7 +35,7 @@ jobs:
   chain:
     # Pinned, not -latest: this should track the Oracle box (Ubuntu 24.04),
     # not drift with GitHub's image alias.
-    runs-on: ubuntu-24.04
+    runs-on: ubicloud-standard-2
     timeout-minutes: 30
     env:
       MOCK_PORT: "8899"
